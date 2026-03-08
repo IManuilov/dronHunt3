@@ -20,8 +20,10 @@ public class LevelGenerator {
     }
 
     public LevelData generateLevel() {
-        BufferedImage mapImage = generateMapImage();
+        return generateLevelForMap(generateMapImage());
+    }
 
+    public LevelData generateLevelForMap(BufferedImage mapImage) {
         int marginX = Math.max(GameConfig.TARGET_MARGIN_X, GameConfig.MAP_WIDTH / 8);
         int marginY = Math.max(GameConfig.TARGET_MARGIN_Y, GameConfig.MAP_HEIGHT / 8);
 

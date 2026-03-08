@@ -9,13 +9,17 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.image.BufferedImage;
 
 public class GameWindow {
     private final LevelGenerator levelGenerator = new LevelGenerator();
 
     private LevelData currentLevel;
+    private BufferedImage displayedMapImage;
+
     private int score = 0;
     private int levelNumber = 1;
+    private int levelsPassedOnCurrentMap = 0;
 
     private JLabel statusLabel;
     private MapPanel mapPanel;
@@ -71,10 +75,19 @@ public class GameWindow {
             int reward = 100 + Math.max(0, (int) ((GameConfig.HIT_RADIUS - dist) * 2));
             score += reward;
             levelNumber++;
+            levelsPassedOnCurrentMap++;
 
-            currentLevel = levelGenerator.generateLevel();
-            applyLevelToViews();
-            updateStatus("Hit! +" + reward + " points. New rotated view.");
+            if (levelsPassedOnCurrentMap >= GameConfig.LEVELS_PER_MAP) {
+                currentLevel = levelGenerator.generateLevel();
+                levelsPassedOnCurrentMap = 0;
+                applyLevelToViews();
+                updateStatus("Hit! +" + reward + " points. New map generated.");
+            } else {
+                currentLevel = levelGenerator.generateLevelForMap(currentLevel.mapImage());
+                mapPanel.clearLastClick();
+                fragmentPanel.setLevelData(currentLevel);
+                updateStatus("Hit! +" + reward + " points. New fragment.");
+            }
         } else {
             score = Math.max(0, score - 15);
             updateStatus("Miss (" + (int) dist + " px). Try again.");
@@ -82,7 +95,10 @@ public class GameWindow {
     }
 
     private void applyLevelToViews() {
-        mapPanel.setMapImage(currentLevel.mapImage());
+        if (displayedMapImage != currentLevel.mapImage()) {
+            displayedMapImage = currentLevel.mapImage();
+            mapPanel.setMapImage(displayedMapImage);
+        }
         mapPanel.clearLastClick();
         fragmentPanel.setLevelData(currentLevel);
     }
