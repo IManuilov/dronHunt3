@@ -19,6 +19,9 @@ public class LevelGenerator {
     private record Node(int x, int y) {
     }
 
+    private record AngleAnchor(int x, int y, double angleRad) {
+    }
+
     public LevelData generateLevel() {
         return generateLevelForMap(generateMapImage());
     }
@@ -43,23 +46,33 @@ public class LevelGenerator {
         g2.setColor(new Color(18, 22, 28));
         g2.fillRect(0, 0, GameConfig.MAP_WIDTH, GameConfig.MAP_HEIGHT);
 
-        double[][] angleField = createAngleField();
+        List<AngleAnchor> angleAnchors = createAngleAnchors();
+
+        int baseRectCount = GameConfig.MAP_RECTANGLES;
+        double sizeScale = Math.sqrt((double) baseRectCount / Math.max(1, GameConfig.MAP_RECTANGLES));
+        sizeScale = Math.max(0.45, Math.min(2.2, sizeScale));
+
+        int minRectSize = Math.max(4, (int) Math.round(20 * sizeScale));
+        int maxRectSize = Math.max(minRectSize + 2, (int) Math.round(289 * sizeScale));
+        int rectSpan = maxRectSize - minRectSize + 1;
 
         for (int i = 0; i < GameConfig.MAP_RECTANGLES; i++) {
-            int w = 10 + random.nextInt(180);
-            int h = 10 + random.nextInt(180);
+            int w = minRectSize + (int) (random.nextDouble() * random.nextDouble() * rectSpan);
+            int h = minRectSize + (int) (random.nextDouble() * random.nextDouble() * rectSpan);
             int cx = random.nextInt(GameConfig.MAP_WIDTH);
             int cy = random.nextInt(GameConfig.MAP_HEIGHT);
 
             int area = w * h;
-            int minArea = 10 * 10;
-            int maxArea = 189 * 189;
+            int minArea = minRectSize * minRectSize;
+            int maxArea = maxRectSize * maxRectSize;
             double t = (double) (area - minArea) / (maxArea - minArea);
             t = Math.max(0.0, Math.min(1.0, t));
             int alpha = (int) Math.round(220 - t * 150);
-            Color color = randomWarmColor(alpha);
+            Color color = random.nextDouble() < 0.60
+                    ? colorFromMapAtPointOrGenerated(mapImage, cx, cy, alpha)
+                    : randomWarmColor(alpha);
 
-            double angle = sampleAngleField(angleField, cx, cy)
+            double angle = getNearestAnchorAngle(angleAnchors, cx, cy)
                     + (random.nextDouble() - 0.5) * 2.0 * GameConfig.LOCAL_ANGLE_JITTER_RAD;
 
             AffineTransform old = g2.getTransform();
@@ -76,79 +89,49 @@ public class LevelGenerator {
         return mapImage;
     }
 
-    private double[][] createAngleField() {
-        int cols = (int) Math.ceil((double) GameConfig.MAP_WIDTH / GameConfig.ANGLE_CELL_SIZE) + 1;
-        int rows = (int) Math.ceil((double) GameConfig.MAP_HEIGHT / GameConfig.ANGLE_CELL_SIZE) + 1;
+    private List<AngleAnchor> createAngleAnchors() {
+        int overflowX = (int) Math.round(GameConfig.MAP_WIDTH * GameConfig.RECT_ANGLE_ANCHOR_OVERFLOW_RATIO);
+        int overflowY = (int) Math.round(GameConfig.MAP_HEIGHT * GameConfig.RECT_ANGLE_ANCHOR_OVERFLOW_RATIO);
 
-        double[][] field = new double[rows][cols];
-        for (int y = 0; y < rows; y++) {
-            for (int x = 0; x < cols; x++) {
-                if (x == 0 && y == 0) {
-                    field[y][x] = random.nextDouble() * Math.PI * 2.0;
-                    continue;
-                }
+        List<AngleAnchor> anchors = new ArrayList<>();
+        for (int i = 0; i < GameConfig.RECT_ANGLE_ANCHOR_COUNT; i++) {
+            int x = -overflowX + random.nextInt(GameConfig.MAP_WIDTH + overflowX * 2);
+            int y = -overflowY + random.nextInt(GameConfig.MAP_HEIGHT + overflowY * 2);
+            double angleRad = random.nextDouble() * Math.PI * 2.0;
+            anchors.add(new AngleAnchor(x, y, angleRad));
+        }
 
-                double base;
-                if (x > 0 && y > 0) {
-                    base = averageAngles(field[y][x - 1], field[y - 1][x]);
-                } else if (x > 0) {
-                    base = field[y][x - 1];
-                } else {
-                    base = field[y - 1][x];
-                }
+        return anchors;
+    }
 
-                field[y][x] = base + (random.nextDouble() - 0.5) * 2.0 * GameConfig.ANGLE_VARIATION_RAD;
+    private double getNearestAnchorAngle(List<AngleAnchor> anchors, int x, int y) {
+        AngleAnchor best = anchors.get(0);
+        long bestDistSq = Long.MAX_VALUE;
+
+        for (AngleAnchor anchor : anchors) {
+            long dx = (long) x - anchor.x;
+            long dy = (long) y - anchor.y;
+            long distSq = dx * dx + dy * dy;
+            if (distSq < bestDistSq) {
+                bestDistSq = distSq;
+                best = anchor;
             }
         }
 
-        return field;
+        return best.angleRad;
     }
 
-    private double sampleAngleField(double[][] field, int px, int py) {
-        int rows = field.length;
-        int cols = field[0].length;
-
-        double gx = (double) px / GameConfig.ANGLE_CELL_SIZE;
-        double gy = (double) py / GameConfig.ANGLE_CELL_SIZE;
-
-        int x0 = clamp((int) Math.floor(gx), 0, cols - 2);
-        int y0 = clamp((int) Math.floor(gy), 0, rows - 2);
-        int x1 = x0 + 1;
-        int y1 = y0 + 1;
-
-        double tx = gx - x0;
-        double ty = gy - y0;
-
-        double a00 = field[y0][x0];
-        double a10 = field[y0][x1];
-        double a01 = field[y1][x0];
-        double a11 = field[y1][x1];
-
-        double top = averageAngles(a00, a10, 1.0 - tx, tx);
-        double bottom = averageAngles(a01, a11, 1.0 - tx, tx);
-        return averageAngles(top, bottom, 1.0 - ty, ty);
-    }
-
-    private double averageAngles(double a, double b) {
-        return averageAngles(a, b, 1.0, 1.0);
-    }
-
-    private double averageAngles(double a, double b, double wa, double wb) {
-        double x = Math.cos(a) * wa + Math.cos(b) * wb;
-        double y = Math.sin(a) * wa + Math.sin(b) * wb;
-        return Math.atan2(y, x);
+    private Color colorFromMapAtPointOrGenerated(BufferedImage mapImage, int x, int y, int alpha) {
+        int rgb = mapImage.getRGB(x, y);
+        Color base = new Color(rgb);
+        if (base.getRed() == 0 && base.getGreen() == 0 && base.getBlue() == 0) {
+            return randomWarmColor(alpha);
+        }
+        return new Color(base.getRed(), base.getGreen(), base.getBlue(), alpha);
     }
 
     private Color randomWarmColor(int alpha) {
-        float pick = random.nextFloat();
-        float hue;
-        if (pick < 0.45f) {
-            hue = random.nextFloat() * 0.12f;
-        } else if (pick < 0.78f) {
-            hue = 0.08f + random.nextFloat() * 0.08f;
-        } else {
-            hue = 0.26f + random.nextFloat() * 0.10f;
-        }
+        float hue = random.nextFloat() * 0.55f;
 
         float satPick = random.nextFloat();
         float saturation;
@@ -340,7 +323,7 @@ public class LevelGenerator {
 
         Path2D.Double road = new Path2D.Double();
         road.moveTo(a.x, a.y);
-        appendFractalRoadSegment(road, a.x, a.y, b.x, b.y);
+        appendFractalRoadSegment(road, a.x, a.y, b.x, b.y, 0);
 
         float roadWidth = 2.0f + random.nextFloat() * 2.6f;
         Color roadColor = randomCoolDarkColor(185 + random.nextInt(50));
@@ -350,7 +333,7 @@ public class LevelGenerator {
         g2.draw(road);
     }
 
-    private void appendFractalRoadSegment(Path2D.Double path, double x1, double y1, double x2, double y2) {
+    private void appendFractalRoadSegment(Path2D.Double path, double x1, double y1, double x2, double y2, int depth) {
         double dx = x2 - x1;
         double dy = y2 - y1;
         double dist = Math.hypot(dx, dy);
@@ -363,7 +346,9 @@ public class LevelGenerator {
         double midX = (x1 + x2) * 0.5;
         double midY = (y1 + y2) * 0.5;
 
-        double shift = Math.min(18.0, Math.max(1.2, dist * 0.10));
+        double decay = Math.pow(0.72, depth);
+        double maxShift = dist * 0.30 * decay;
+        double shift = random.nextDouble() * maxShift;
         double angle = random.nextDouble() * Math.PI * 2.0;
         midX += Math.cos(angle) * shift;
         midY += Math.sin(angle) * shift;
@@ -373,8 +358,8 @@ public class LevelGenerator {
         midX = clamp((int) Math.round(midX), -overflowX, GameConfig.MAP_WIDTH - 1 + overflowX);
         midY = clamp((int) Math.round(midY), -overflowY, GameConfig.MAP_HEIGHT - 1 + overflowY);
 
-        appendFractalRoadSegment(path, x1, y1, midX, midY);
-        appendFractalRoadSegment(path, midX, midY, x2, y2);
+        appendFractalRoadSegment(path, x1, y1, midX, midY, depth + 1);
+        appendFractalRoadSegment(path, midX, midY, x2, y2, depth + 1);
     }
 
     private int clamp(int value, int min, int max) {

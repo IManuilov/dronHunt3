@@ -61,9 +61,8 @@ public class GameWindow {
         applyLevelToViews();
         updateStatus("Find the rotated view on the map and click near its center.");
 
-        frame.setSize(1400, 860);
         frame.setMinimumSize(new Dimension(1100, 700));
-        frame.setLocationRelativeTo(null);
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setVisible(true);
     }
 
