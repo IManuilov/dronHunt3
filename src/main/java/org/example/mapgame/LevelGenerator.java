@@ -137,7 +137,7 @@ public class LevelGenerator {
             return new Color(base.getRed(), base.getGreen(), base.getBlue(), alpha);
         }
 
-        int retryRadius = 64;
+        int retryRadius = 94;
         for (int attempt = 0; attempt < 5; attempt++) {
             int nx = clamp(x + random.nextInt(retryRadius * 2 + 1) - retryRadius, 0, GameConfig.MAP_WIDTH - 1);
             int ny = clamp(y + random.nextInt(retryRadius * 2 + 1) - retryRadius, 0, GameConfig.MAP_HEIGHT - 1);
@@ -157,19 +157,19 @@ public class LevelGenerator {
     }
 
     private Color randomWarmColor(int alpha) {
-        float hue = random.nextFloat() * 0.55f;
+        float hue = random.nextFloat() * 0.57f;
 
         float satPick = random.nextFloat();
-        float saturation;
-        if (satPick < 0.35f) {
-            saturation = 0.18f + random.nextFloat() * 0.16f;
-        } else if (satPick < 0.8f) {
-            saturation = 0.34f + random.nextFloat() * 0.22f;
-        } else {
-            saturation = 0.56f + random.nextFloat() * 0.18f;
-        }
+        float saturation = 0.11f + random.nextFloat() * 0.60f;
+//        if (satPick < 0.35f) {
+//            saturation = 0.18f + random.nextFloat() * 0.16f;
+//        } else if (satPick < 0.8f) {
+//            saturation = 0.34f + random.nextFloat() * 0.22f;
+//        } else {
+//            saturation = 0.56f + random.nextFloat() * 0.18f;
+//        }
 
-        float brightness = 0.52f + random.nextFloat() * 0.36f;
+        float brightness = 0.47f + random.nextFloat() * 0.37f;
         int rgb = Color.HSBtoRGB(hue, saturation, brightness);
         return new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, alpha);
     }
@@ -391,7 +391,7 @@ public class LevelGenerator {
         double dy = y2 - y1;
         double dist = Math.hypot(dx, dy);
 
-        if (dist < 5.0) {
+        if (dist < 9.0) {
             path.lineTo(x2, y2);
             points.add(new MapPoint(x2, y2));
             return;
@@ -400,8 +400,8 @@ public class LevelGenerator {
         double midX = (x1 + x2) * 0.5;
         double midY = (y1 + y2) * 0.5;
 
-        double decay = Math.pow(0.72, depth);
-        double maxShift = dist * 0.30 * decay;
+        double decay = Math.pow(0.70, depth);
+        double maxShift = dist * 0.32 * decay;
         double shift = random.nextDouble() * maxShift;
         double angle = random.nextDouble() * Math.PI * 2.0;
         midX += Math.cos(angle) * shift;

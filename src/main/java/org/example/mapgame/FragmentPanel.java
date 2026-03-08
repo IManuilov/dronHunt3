@@ -11,7 +11,7 @@ import java.util.List;
 
 public class FragmentPanel extends JPanel {
     private LevelData levelData;
-    private List<MapPoint> carPositions = List.of();
+    private List<CarVisual> cars = List.of();
 
     public FragmentPanel() {
         setBackground(new Color(12, 12, 12));
@@ -22,8 +22,8 @@ public class FragmentPanel extends JPanel {
         repaint();
     }
 
-    public void setCarPositions(List<MapPoint> carPositions) {
-        this.carPositions = carPositions;
+    public void setCars(List<CarVisual> cars) {
+        this.cars = cars;
         repaint();
     }
 
@@ -58,10 +58,10 @@ public class FragmentPanel extends JPanel {
 
         g2.drawImage(levelData.mapImage(), 0, 0, null);
 
-        g2.setColor(Color.WHITE);
-        for (MapPoint car : carPositions) {
+        for (CarVisual car : cars) {
             int x = (int) Math.round(car.x());
             int y = (int) Math.round(car.y());
+            g2.setColor(car.color());
             g2.fillOval(x - 3, y - 3, 6, 6);
         }
 

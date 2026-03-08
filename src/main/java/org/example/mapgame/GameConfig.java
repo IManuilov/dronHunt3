@@ -3,7 +3,7 @@ package org.example.mapgame;
 public final class GameConfig {
     public static final int MAP_WIDTH = 2700;
     public static final int MAP_HEIGHT = 2700;
-    public static final int MAP_RECTANGLES = 2200;
+    public static final int MAP_RECTANGLES = 3200;
 
     public static final int RECT_ANGLE_ANCHOR_COUNT = 40;
     public static final double RECT_ANGLE_ANCHOR_OVERFLOW_RATIO = 0.12;
@@ -24,10 +24,10 @@ public final class GameConfig {
 
     public static final int TARGET_MARGIN_X = 60;
     public static final int TARGET_MARGIN_Y = 50;
-    public static final double TARGET_MIN_ZOOM = 2.2;
-    public static final double TARGET_ZOOM_RANGE = 1.6;
+    public static final double TARGET_MIN_ZOOM = 2.4;
+    public static final double TARGET_ZOOM_RANGE = 1.8;
 
-    public static final int BLACK_THRESHOLD = 30;
+    public static final int BLACK_THRESHOLD = 29;
 
     private GameConfig() {
     }

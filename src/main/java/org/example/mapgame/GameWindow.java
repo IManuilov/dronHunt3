@@ -8,6 +8,7 @@ import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.Timer;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
@@ -34,7 +35,7 @@ public class GameWindow {
     private static final int MAX_SHOT_HISTORY = 15;
 
     private final List<CarState> cars = new ArrayList<>();
-    private final List<MapPoint> carPositions = new ArrayList<>();
+    private final List<CarVisual> carVisuals = new ArrayList<>();
     private final List<Boolean> shotHistory = new ArrayList<>();
 
     private int fps = 0;
@@ -46,17 +47,19 @@ public class GameWindow {
         private final RoadPath road;
         private final double[] cumulativeLengths;
         private final double totalLength;
+        private final Color color;
 
         private double progress;
         private double speed;
 
         private CarState(RoadPath road, double progress, double speed,
-                         double[] cumulativeLengths, double totalLength) {
+                         double[] cumulativeLengths, double totalLength, Color color) {
             this.road = road;
             this.progress = progress;
             this.speed = speed;
             this.cumulativeLengths = cumulativeLengths;
             this.totalLength = totalLength;
+            this.color = color;
         }
     }
 
@@ -111,7 +114,7 @@ public class GameWindow {
 
         Timer timer = new Timer(33, e -> {
             updateCars();
-            pushCarPositionsToPanels();
+            pushCarVisualsToPanels();
             updateFps();
         });
         timer.start();
@@ -146,7 +149,7 @@ public class GameWindow {
             } else {
                 currentLevel = levelGenerator.generateLevelForExistingMap(currentLevel);
                 mapPanel.clearLastClick();
-                mapPanel.showFadingTarget(previousTargetX, previousTargetY, 3000);
+                mapPanel.showFadingTarget(previousTargetX, previousTargetY, 3000, 500);
                 fragmentPanel.setLevelData(currentLevel);
                 updateStatus("Hit! +" + reward + " points.");
             }
@@ -165,12 +168,12 @@ public class GameWindow {
         }
         mapPanel.clearLastClick();
         fragmentPanel.setLevelData(currentLevel);
-        pushCarPositionsToPanels();
+        pushCarVisualsToPanels();
     }
 
     private void initCarsForCurrentMap() {
         cars.clear();
-        carPositions.clear();
+        carVisuals.clear();
 
         List<RoadPath> roads = currentLevel.roads();
         if (roads == null || roads.isEmpty()) {
@@ -198,10 +201,19 @@ public class GameWindow {
                 speed = -speed;
             }
 
-            cars.add(new CarState(road, progress, speed, cumulative, totalLength));
+            Color color = randomCarColor();
+            cars.add(new CarState(road, progress, speed, cumulative, totalLength, color));
         }
 
         updateCars();
+    }
+
+    private Color randomCarColor() {
+        float hue = random.nextFloat();
+        float saturation = 0.75f + random.nextFloat() * 0.2f;
+        float brightness = 0.88f + random.nextFloat() * 0.12f;
+        int rgb = Color.HSBtoRGB(hue, saturation, brightness);
+        return new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
     }
 
     private double[] buildCumulativeLengths(RoadPath road) {
@@ -221,11 +233,11 @@ public class GameWindow {
 
     private void updateCars() {
         if (cars.isEmpty()) {
-            carPositions.clear();
+            carVisuals.clear();
             return;
         }
 
-        carPositions.clear();
+        carVisuals.clear();
         for (CarState car : cars) {
             car.progress += car.speed;
             while (car.progress >= 1.0) {
@@ -235,7 +247,8 @@ public class GameWindow {
                 car.progress += 1.0;
             }
 
-            carPositions.add(samplePointOnRoad(car));
+            MapPoint p = samplePointOnRoad(car);
+            carVisuals.add(new CarVisual(p.x(), p.y(), car.color));
         }
     }
 
@@ -264,10 +277,10 @@ public class GameWindow {
         return new MapPoint(x, y);
     }
 
-    private void pushCarPositionsToPanels() {
-        List<MapPoint> snapshot = List.copyOf(carPositions);
-        mapPanel.setCarPositions(snapshot);
-        fragmentPanel.setCarPositions(snapshot);
+    private void pushCarVisualsToPanels() {
+        List<CarVisual> snapshot = List.copyOf(carVisuals);
+        mapPanel.setCars(snapshot);
+        fragmentPanel.setCars(snapshot);
     }
 
     private void updateFps() {
@@ -282,7 +295,8 @@ public class GameWindow {
         }
     }
 
-    private void registerShot(boolean hit) {        shotHistory.add(hit);
+    private void registerShot(boolean hit) {
+        shotHistory.add(hit);
         if (shotHistory.size() > MAX_SHOT_HISTORY) {
             shotHistory.remove(0);
         }

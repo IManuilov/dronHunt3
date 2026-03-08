@@ -26,7 +26,7 @@ public class MapPanel extends JPanel {
 
     private final ClickListener clickListener;
     private BufferedImage mapImage;
-    private List<MapPoint> carPositions = List.of();
+    private List<CarVisual> cars = List.of();
 
     private int lastClickX = -1;
     private int lastClickY = -1;
@@ -136,8 +136,8 @@ public class MapPanel extends JPanel {
         repaint();
     }
 
-    public void setCarPositions(List<MapPoint> carPositions) {
-        this.carPositions = carPositions;
+    public void setCars(List<CarVisual> cars) {
+        this.cars = cars;
         repaint();
     }
 
@@ -154,9 +154,13 @@ public class MapPanel extends JPanel {
     }
 
     public void showFadingTarget(int mapX, int mapY, long durationMs) {
+        showFadingTarget(mapX, mapY, durationMs, 0L);
+    }
+
+    public void showFadingTarget(int mapX, int mapY, long durationMs, long delayMs) {
         this.fadingTargetX = mapX;
         this.fadingTargetY = mapY;
-        this.fadingStartMs = System.currentTimeMillis();
+        this.fadingStartMs = System.currentTimeMillis() + Math.max(0L, delayMs);
         this.fadingDurationMs = Math.max(1L, durationMs);
         repaint();
     }
@@ -205,35 +209,38 @@ public class MapPanel extends JPanel {
         g2.setStroke(new BasicStroke(1.5f));
         g2.drawRect(drawRect.x, drawRect.y, drawRect.width, drawRect.height);
 
-        g2.setColor(Color.WHITE);
-        for (MapPoint car : carPositions) {
+        for (CarVisual car : cars) {
             int x = mapToScreenX(car.x(), drawRect);
             int y = mapToScreenY(car.y(), drawRect);
             if (x >= drawRect.x - 3 && x <= drawRect.x + drawRect.width + 3
                     && y >= drawRect.y - 3 && y <= drawRect.y + drawRect.height + 3) {
+                g2.setColor(car.color());
                 g2.fillOval(x - 3, y - 3, 6, 6);
             }
         }
 
         if (fadingTargetX >= 0 && fadingTargetY >= 0) {
-            long elapsed = System.currentTimeMillis() - fadingStartMs;
-            if (elapsed >= fadingDurationMs) {
-                fadingTargetX = -1;
-                fadingTargetY = -1;
-            } else {
-                double k = 1.0 - (double) elapsed / fadingDurationMs;
-                int fx = mapToScreenX(fadingTargetX, drawRect);
-                int fy = mapToScreenY(fadingTargetY, drawRect);
+            long now = System.currentTimeMillis();
+            if (now >= fadingStartMs) {
+                long elapsed = now - fadingStartMs;
+                if (elapsed >= fadingDurationMs) {
+                    fadingTargetX = -1;
+                    fadingTargetY = -1;
+                } else {
+                    double k = 1.0 - (double) elapsed / fadingDurationMs;
+                    int fx = mapToScreenX(fadingTargetX, drawRect);
+                    int fy = mapToScreenY(fadingTargetY, drawRect);
 
-                int alpha = (int) Math.round(220 * k);
-                int radius = (int) Math.round((6 + 8 * k) * 3.0);
-                Color fadeColor = new Color(255, 240, 120, clamp(alpha, 0, 255));
+                    int alpha = (int) Math.round(220 * k);
+                    int radius = (int) Math.round((6 + 8 * k) * 3.0);
+                    Color fadeColor = new Color(255, 240, 120, clamp(alpha, 0, 255));
 
-                g2.setColor(fadeColor);
-                g2.fillOval(fx - radius, fy - radius, radius * 2, radius * 2);
-                g2.setColor(new Color(255, 255, 255, clamp((int) Math.round(alpha * 0.9), 0, 255)));
-                g2.setStroke(new BasicStroke(3.6f));
-                g2.drawOval(fx - radius - 3, fy - radius - 3, (radius + 3) * 2, (radius + 3) * 2);
+                    g2.setColor(fadeColor);
+                    g2.fillOval(fx - radius, fy - radius, radius * 2, radius * 2);
+                    g2.setColor(new Color(255, 255, 255, clamp((int) Math.round(alpha * 0.9), 0, 255)));
+                    g2.setStroke(new BasicStroke(3.6f));
+                    g2.drawOval(fx - radius - 3, fy - radius - 3, (radius + 3) * 2, (radius + 3) * 2);
+                }
             }
         }
 
@@ -264,6 +271,7 @@ public class MapPanel extends JPanel {
         if (lastClickX >= 0 && lastClickY >= 0) {
             int drawX = mapToScreenX(lastClickX, drawRect);
             int drawY = mapToScreenY(lastClickY, drawRect);
+            g2.setColor(Color.WHITE);
             g2.setStroke(new BasicStroke(2.4f));
             g2.drawOval(drawX - 10, drawY - 10, 20, 20);
             g2.drawLine(drawX - 14, drawY, drawX + 14, drawY);
