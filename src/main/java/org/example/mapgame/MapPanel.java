@@ -11,6 +11,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.image.BufferedImage;
+import java.util.List;
 
 public class MapPanel extends JPanel {
     public interface ClickListener {
@@ -25,9 +26,20 @@ public class MapPanel extends JPanel {
 
     private final ClickListener clickListener;
     private BufferedImage mapImage;
+    private List<MapPoint> carPositions = List.of();
 
     private int lastClickX = -1;
     private int lastClickY = -1;
+
+    private int fadingTargetX = -1;
+    private int fadingTargetY = -1;
+    private long fadingStartMs = 0L;
+    private long fadingDurationMs = 0L;
+
+    private int clickExplosionX = -1;
+    private int clickExplosionY = -1;
+    private long clickExplosionStartMs = 0L;
+    private long clickExplosionDurationMs = 0L;
 
     private double zoom = 1.0;
     private double centerX = GameConfig.MAP_WIDTH / 2.0;
@@ -40,7 +52,7 @@ public class MapPanel extends JPanel {
     private double dragStartCenterX;
     private double dragStartCenterY;
 
-    private record MapPoint(double x, double y) {
+    private record LocalMapPoint(double x, double y) {
     }
 
     public MapPanel(ClickListener clickListener) {
@@ -116,7 +128,16 @@ public class MapPanel extends JPanel {
         zoom = 1.0;
         centerX = GameConfig.MAP_WIDTH / 2.0;
         centerY = GameConfig.MAP_HEIGHT / 2.0;
+        fadingTargetX = -1;
+        fadingTargetY = -1;
+        clickExplosionX = -1;
+        clickExplosionY = -1;
         clampCenter();
+        repaint();
+    }
+
+    public void setCarPositions(List<MapPoint> carPositions) {
+        this.carPositions = carPositions;
         repaint();
     }
 
@@ -129,6 +150,22 @@ public class MapPanel extends JPanel {
     public void clearLastClick() {
         this.lastClickX = -1;
         this.lastClickY = -1;
+        repaint();
+    }
+
+    public void showFadingTarget(int mapX, int mapY, long durationMs) {
+        this.fadingTargetX = mapX;
+        this.fadingTargetY = mapY;
+        this.fadingStartMs = System.currentTimeMillis();
+        this.fadingDurationMs = Math.max(1L, durationMs);
+        repaint();
+    }
+
+    public void showClickExplosion(int mapX, int mapY, long durationMs) {
+        this.clickExplosionX = mapX;
+        this.clickExplosionY = mapY;
+        this.clickExplosionStartMs = System.currentTimeMillis();
+        this.clickExplosionDurationMs = Math.max(1L, durationMs);
         repaint();
     }
 
@@ -168,6 +205,62 @@ public class MapPanel extends JPanel {
         g2.setStroke(new BasicStroke(1.5f));
         g2.drawRect(drawRect.x, drawRect.y, drawRect.width, drawRect.height);
 
+        g2.setColor(Color.WHITE);
+        for (MapPoint car : carPositions) {
+            int x = mapToScreenX(car.x(), drawRect);
+            int y = mapToScreenY(car.y(), drawRect);
+            if (x >= drawRect.x - 3 && x <= drawRect.x + drawRect.width + 3
+                    && y >= drawRect.y - 3 && y <= drawRect.y + drawRect.height + 3) {
+                g2.fillOval(x - 3, y - 3, 6, 6);
+            }
+        }
+
+        if (fadingTargetX >= 0 && fadingTargetY >= 0) {
+            long elapsed = System.currentTimeMillis() - fadingStartMs;
+            if (elapsed >= fadingDurationMs) {
+                fadingTargetX = -1;
+                fadingTargetY = -1;
+            } else {
+                double k = 1.0 - (double) elapsed / fadingDurationMs;
+                int fx = mapToScreenX(fadingTargetX, drawRect);
+                int fy = mapToScreenY(fadingTargetY, drawRect);
+
+                int alpha = (int) Math.round(220 * k);
+                int radius = (int) Math.round((6 + 8 * k) * 3.0);
+                Color fadeColor = new Color(255, 240, 120, clamp(alpha, 0, 255));
+
+                g2.setColor(fadeColor);
+                g2.fillOval(fx - radius, fy - radius, radius * 2, radius * 2);
+                g2.setColor(new Color(255, 255, 255, clamp((int) Math.round(alpha * 0.9), 0, 255)));
+                g2.setStroke(new BasicStroke(3.6f));
+                g2.drawOval(fx - radius - 3, fy - radius - 3, (radius + 3) * 2, (radius + 3) * 2);
+            }
+        }
+
+        if (clickExplosionX >= 0 && clickExplosionY >= 0) {
+            long elapsed = System.currentTimeMillis() - clickExplosionStartMs;
+            if (elapsed >= clickExplosionDurationMs) {
+                clickExplosionX = -1;
+                clickExplosionY = -1;
+            } else {
+                double k = 1.0 - (double) elapsed / clickExplosionDurationMs;
+                int ex = mapToScreenX(clickExplosionX, drawRect);
+                int ey = mapToScreenY(clickExplosionY, drawRect);
+
+                int alphaCore = clamp((int) Math.round(240 * k), 0, 255);
+                int alphaRing = clamp((int) Math.round(180 * k), 0, 255);
+                int coreR = (int) Math.round(8 + (1.0 - k) * 26);
+                int ringR = coreR + 10;
+
+                g2.setColor(new Color(255, 180, 80, alphaCore));
+                g2.fillOval(ex - coreR, ey - coreR, coreR * 2, coreR * 2);
+
+                g2.setColor(new Color(255, 240, 180, alphaRing));
+                g2.setStroke(new BasicStroke(2.8f));
+                g2.drawOval(ex - ringR, ey - ringR, ringR * 2, ringR * 2);
+            }
+        }
+
         if (lastClickX >= 0 && lastClickY >= 0) {
             int drawX = mapToScreenX(lastClickX, drawRect);
             int drawY = mapToScreenY(lastClickY, drawRect);
@@ -179,7 +272,7 @@ public class MapPanel extends JPanel {
     }
 
     private void handleClick(MouseEvent e) {
-        MapPoint mapPoint = screenToMap(e.getX(), e.getY());
+        LocalMapPoint mapPoint = screenToMap(e.getX(), e.getY());
         if (mapPoint == null) {
             clickListener.onOutsideMapClick();
             return;
@@ -202,7 +295,7 @@ public class MapPanel extends JPanel {
             return;
         }
 
-        MapPoint anchor = screenToMap(e.getX(), e.getY());
+        LocalMapPoint anchor = screenToMap(e.getX(), e.getY());
         if (anchor == null) {
             zoom = newZoom;
             clampCenter();
@@ -224,7 +317,7 @@ public class MapPanel extends JPanel {
         repaint();
     }
 
-    private MapPoint screenToMap(int sx, int sy) {
+    private LocalMapPoint screenToMap(int sx, int sy) {
         Rectangle drawRect = getMapDrawRect(getWidth(), getHeight());
         if (!drawRect.contains(sx, sy) || drawRect.width <= 0 || drawRect.height <= 0) {
             return null;
@@ -236,7 +329,7 @@ public class MapPanel extends JPanel {
         double mapX = centerX + (relX - 0.5) * getViewWidth();
         double mapY = centerY + (relY - 0.5) * getViewHeight();
 
-        return new MapPoint(
+        return new LocalMapPoint(
                 clamp(mapX, 0.0, GameConfig.MAP_WIDTH - 1.0),
                 clamp(mapY, 0.0, GameConfig.MAP_HEIGHT - 1.0)
         );

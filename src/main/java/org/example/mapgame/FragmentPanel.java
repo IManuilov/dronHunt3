@@ -7,9 +7,11 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.AffineTransform;
+import java.util.List;
 
 public class FragmentPanel extends JPanel {
     private LevelData levelData;
+    private List<MapPoint> carPositions = List.of();
 
     public FragmentPanel() {
         setBackground(new Color(12, 12, 12));
@@ -17,6 +19,11 @@ public class FragmentPanel extends JPanel {
 
     public void setLevelData(LevelData levelData) {
         this.levelData = levelData;
+        repaint();
+    }
+
+    public void setCarPositions(List<MapPoint> carPositions) {
+        this.carPositions = carPositions;
         repaint();
     }
 
@@ -49,10 +56,13 @@ public class FragmentPanel extends JPanel {
         g2.scale(scale, scale);
         g2.translate(-levelData.targetX(), -levelData.targetY());
 
-        for (int ox = -1; ox <= 1; ox++) {
-            for (int oy = -1; oy <= 1; oy++) {
-                g2.drawImage(levelData.mapImage(), ox * GameConfig.MAP_WIDTH, oy * GameConfig.MAP_HEIGHT, null);
-            }
+        g2.drawImage(levelData.mapImage(), 0, 0, null);
+
+        g2.setColor(Color.WHITE);
+        for (MapPoint car : carPositions) {
+            int x = (int) Math.round(car.x());
+            int y = (int) Math.round(car.y());
+            g2.fillOval(x - 3, y - 3, 6, 6);
         }
 
         g2.setTransform(old);
