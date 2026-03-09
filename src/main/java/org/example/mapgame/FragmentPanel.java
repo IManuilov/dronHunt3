@@ -13,17 +13,29 @@ public class FragmentPanel extends JPanel {
     private LevelData levelData;
     private List<CarVisual> cars = List.of();
 
+    private long fallStartMs = 0L;
+    private long fallDurationMs = 0L;
+    private boolean fallActive = false;
+
     public FragmentPanel() {
         setBackground(new Color(12, 12, 12));
     }
 
     public void setLevelData(LevelData levelData) {
         this.levelData = levelData;
+        this.fallActive = false;
         repaint();
     }
 
     public void setCars(List<CarVisual> cars) {
         this.cars = cars;
+        repaint();
+    }
+
+    public void startFallAnimation(long durationMs) {
+        this.fallStartMs = System.currentTimeMillis();
+        this.fallDurationMs = Math.max(1L, durationMs);
+        this.fallActive = true;
         repaint();
     }
 
@@ -46,6 +58,19 @@ public class FragmentPanel extends JPanel {
 
         double baseScale = Math.max((double) panelW / GameConfig.MAP_WIDTH, (double) panelH / GameConfig.MAP_HEIGHT);
         double scale = baseScale * levelData.targetZoom();
+        int whiteFadeAlpha = 0;
+
+        if (fallActive) {
+            long elapsed = System.currentTimeMillis() - fallStartMs;
+            double t = Math.max(0.0, (double) elapsed / fallDurationMs);
+            // Softer acceleration and no stop at animation end:
+            // scale keeps growing until the next level is applied.
+            double fallMultiplier = 1.0 + 1.2 * t * t * t;
+            scale *= fallMultiplier;
+
+            double fadeT = Math.min(1.0, t);
+            whiteFadeAlpha = (int) Math.round(255.0 * fadeT * fadeT);
+        }
 
         int cx = panelW / 2;
         int cy = panelH / 2;
@@ -66,6 +91,11 @@ public class FragmentPanel extends JPanel {
         }
 
         g2.setTransform(old);
+
+        if (whiteFadeAlpha > 0) {
+            g2.setColor(new Color(255, 255, 255, whiteFadeAlpha));
+            g2.fillRect(0, 0, panelW, panelH);
+        }
 
         g2.setColor(Color.WHITE);
         g2.setStroke(new BasicStroke(2f));

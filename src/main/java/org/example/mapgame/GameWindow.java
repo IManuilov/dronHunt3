@@ -12,12 +12,21 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
 public class GameWindow {
+    private static final int MAX_SHOT_HISTORY = 15;
+
+    private static final long HIT_ANIMATION_TOTAL_MS = 2600L;
+    private static final long LEFT_HIT_FADE_DELAY_MS = 350L;
+    private static final long LEFT_CLICK_EXPLOSION_MS = HIT_ANIMATION_TOTAL_MS;
+    private static final long LEFT_HIT_FADE_MS = HIT_ANIMATION_TOTAL_MS - LEFT_HIT_FADE_DELAY_MS;
+    private static final long RIGHT_FALL_MS = HIT_ANIMATION_TOTAL_MS;
+
     private final LevelGenerator levelGenerator = new LevelGenerator();
     private final Random random = new Random();
 
@@ -32,8 +41,6 @@ public class GameWindow {
     private MapPanel mapPanel;
     private FragmentPanel fragmentPanel;
 
-    private static final int MAX_SHOT_HISTORY = 15;
-
     private final List<CarState> cars = new ArrayList<>();
     private final List<CarVisual> carVisuals = new ArrayList<>();
     private final List<Boolean> shotHistory = new ArrayList<>();
@@ -42,6 +49,13 @@ public class GameWindow {
     private int fpsFrames = 0;
     private long fpsWindowStartMs = System.currentTimeMillis();
     private String lastStatusMessage = "";
+
+    private long gameStartMs = 0L;
+    private long levelStartMs = 0L;
+
+    private boolean pendingPostHitTransition = false;
+    private boolean pendingRegenerateMap = false;
+    private long pendingTransitionAtMs = 0L;
 
     private static class CarState {
         private final RoadPath road;
@@ -64,6 +78,8 @@ public class GameWindow {
     }
 
     public void showWindow() {
+        gameStartMs = System.currentTimeMillis();
+        levelStartMs = gameStartMs;
         currentLevel = levelGenerator.generateLevel();
 
         JFrame frame = new JFrame("Map Fragment Hunt");
@@ -71,15 +87,17 @@ public class GameWindow {
         frame.setLayout(new BorderLayout(8, 8));
 
         statusLabel = new JLabel("", SwingConstants.CENTER);
-        statusLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        statusLabel.setFont(new Font("SansSerif", Font.BOLD, 11));
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
 
         JButton regenerateButton = new JButton("Regenerate Map");
-        regenerateButton.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        regenerateButton.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        regenerateButton.setMargin(new Insets(2, 8, 2, 8));
+        regenerateButton.setPreferredSize(new Dimension(130, 24));
         regenerateButton.addActionListener(e -> regenerateMap());
 
         JPanel topPanel = new JPanel(new BorderLayout(8, 0));
-        topPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
+        topPanel.setBorder(BorderFactory.createEmptyBorder(3, 6, 0, 6));
         topPanel.add(statusLabel, BorderLayout.CENTER);
         topPanel.add(regenerateButton, BorderLayout.EAST);
 
@@ -106,7 +124,7 @@ public class GameWindow {
         frame.add(content, BorderLayout.CENTER);
 
         applyLevelToViews();
-        updateStatus("Find the rotated view on the map and click near its center.");
+        updateStatus("Find right fragment on the left map and click near its center.");
 
         frame.setMinimumSize(new Dimension(1100, 700));
         frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
@@ -115,12 +133,14 @@ public class GameWindow {
         Timer timer = new Timer(33, e -> {
             updateCars();
             pushCarVisualsToPanels();
+            processPendingPostHitTransition();
             updateFps();
         });
         timer.start();
     }
 
     private void regenerateMap() {
+        pendingPostHitTransition = false;
         currentLevel = levelGenerator.generateLevel();
         levelsPassedOnCurrentMap = 0;
         applyLevelToViews();
@@ -128,35 +148,61 @@ public class GameWindow {
     }
 
     private void handleMapClick(int mapX, int mapY) {
+        if (pendingPostHitTransition) {
+            return;
+        }
+
         mapPanel.setLastClick(mapX, mapY);
-        mapPanel.showClickExplosion(mapX, mapY, 1500);
+        mapPanel.showClickExplosion(mapX, mapY, LEFT_CLICK_EXPLOSION_MS);
 
         double dist = Math.hypot(mapX - currentLevel.targetX(), mapY - currentLevel.targetY());
         if (dist <= GameConfig.HIT_RADIUS) {
             registerShot(true);
+
             int previousTargetX = currentLevel.targetX();
             int previousTargetY = currentLevel.targetY();
+
             int reward = 100 + Math.max(0, (int) ((GameConfig.HIT_RADIUS - dist) * 2));
             score += reward;
             levelNumber++;
             levelsPassedOnCurrentMap++;
 
-            if (levelsPassedOnCurrentMap >= GameConfig.LEVELS_PER_MAP) {
-                currentLevel = levelGenerator.generateLevel();
-                levelsPassedOnCurrentMap = 0;
-                applyLevelToViews();
-                updateStatus("Hit! +" + reward + " points.");
-            } else {
-                currentLevel = levelGenerator.generateLevelForExistingMap(currentLevel);
-                mapPanel.clearLastClick();
-                mapPanel.showFadingTarget(previousTargetX, previousTargetY, 3000, 500);
-                fragmentPanel.setLevelData(currentLevel);
-                updateStatus("Hit! +" + reward + " points.");
-            }
+            pendingRegenerateMap = levelsPassedOnCurrentMap >= GameConfig.LEVELS_PER_MAP;
+            pendingPostHitTransition = true;
+
+            mapPanel.showFadingTarget(previousTargetX, previousTargetY, LEFT_HIT_FADE_MS, LEFT_HIT_FADE_DELAY_MS);
+            fragmentPanel.startFallAnimation(RIGHT_FALL_MS);
+
+            pendingTransitionAtMs = System.currentTimeMillis() + HIT_ANIMATION_TOTAL_MS;
+
+            updateStatus("Hit! +" + reward + " points.");
         } else {
             registerShot(false);
             score = Math.max(0, score - 15);
             updateStatus("Miss (" + (int) dist + " px). Try again.");
+        }
+    }
+
+    private void processPendingPostHitTransition() {
+        if (!pendingPostHitTransition) {
+            return;
+        }
+        if (System.currentTimeMillis() < pendingTransitionAtMs) {
+            return;
+        }
+
+        pendingPostHitTransition = false;
+
+        if (pendingRegenerateMap) {
+            currentLevel = levelGenerator.generateLevel();
+            levelsPassedOnCurrentMap = 0;
+            applyLevelToViews();
+        } else {
+            currentLevel = levelGenerator.generateLevelForExistingMap(currentLevel);
+            levelStartMs = System.currentTimeMillis();
+            mapPanel.clearLastClick();
+            fragmentPanel.setLevelData(currentLevel);
+            pushCarVisualsToPanels();
         }
     }
 
@@ -166,6 +212,7 @@ public class GameWindow {
             mapPanel.setMapImage(displayedMapImage);
             initCarsForCurrentMap();
         }
+        levelStartMs = System.currentTimeMillis();
         mapPanel.clearLastClick();
         fragmentPanel.setLevelData(currentLevel);
         pushCarVisualsToPanels();
@@ -323,8 +370,23 @@ public class GameWindow {
 
     private void updateStatus(String message) {
         lastStatusMessage = message;
+        String totalTime = formatDuration(System.currentTimeMillis() - gameStartMs);
+        String levelTime = formatDuration(System.currentTimeMillis() - levelStartMs);
         String text = "Level: " + levelNumber + "   |   Score: " + score + "   |   FPS: " + fps
+                + "   |   Total: " + totalTime + "   |   Level: " + levelTime
                 + "   |   " + message + "   |   " + buildShotHistoryHtml();
         statusLabel.setText("<html><div style='text-align:center;'>" + text + "</div></html>");
+    }
+
+    private String formatDuration(long millis) {
+        long totalSeconds = Math.max(0L, millis / 1000L);
+        long hours = totalSeconds / 3600L;
+        long minutes = (totalSeconds % 3600L) / 60L;
+        long seconds = totalSeconds % 60L;
+
+        if (hours > 0) {
+            return String.format("%d:%02d:%02d", hours, minutes, seconds);
+        }
+        return String.format("%02d:%02d", minutes, seconds);
     }
 }
