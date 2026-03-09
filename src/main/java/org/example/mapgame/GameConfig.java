@@ -20,7 +20,7 @@ public final class GameConfig {
     public static final double ROAD_OVERFLOW_RATIO = 0.30;
 
     public static final int HIT_RADIUS = 45;
-    public static final int LEVELS_PER_MAP = 10;
+    public static final int LEVELS_PER_MAP = 3;
 
     public static final int TARGET_MARGIN_X = 60;
     public static final int TARGET_MARGIN_Y = 50;

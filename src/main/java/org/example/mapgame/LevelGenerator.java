@@ -157,10 +157,10 @@ public class LevelGenerator {
     }
 
     private Color randomWarmColor(int alpha) {
-        float hue = random.nextFloat() * 0.57f;
+        float hue = random.nextFloat() * 0.59f;
 
         float satPick = random.nextFloat();
-        float saturation = 0.11f + random.nextFloat() * 0.60f;
+        float saturation = 0.09f + random.nextFloat() * 0.60f;
 //        if (satPick < 0.35f) {
 //            saturation = 0.18f + random.nextFloat() * 0.16f;
 //        } else if (satPick < 0.8f) {
@@ -169,7 +169,7 @@ public class LevelGenerator {
 //            saturation = 0.56f + random.nextFloat() * 0.18f;
 //        }
 
-        float brightness = 0.47f + random.nextFloat() * 0.37f;
+        float brightness = 0.40f + random.nextFloat() * 0.39f;
         int rgb = Color.HSBtoRGB(hue, saturation, brightness);
         return new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, alpha);
     }
