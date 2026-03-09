@@ -11,6 +11,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.image.BufferedImage;
+import java.util.Collections;
 import java.util.List;
 
 public class MapPanel extends JPanel {
@@ -26,7 +27,7 @@ public class MapPanel extends JPanel {
 
     private final ClickListener clickListener;
     private BufferedImage mapImage;
-    private List<CarVisual> cars = List.of();
+    private List<CarVisual> cars = Collections.emptyList();
 
     private int lastClickX = -1;
     private int lastClickY = -1;
@@ -51,9 +52,16 @@ public class MapPanel extends JPanel {
     private int dragStartY;
     private double dragStartCenterX;
     private double dragStartCenterY;
+    private static final class LocalMapPoint {
+        private final double x;
+        private final double y;
 
-    private record LocalMapPoint(double x, double y) {
+        private LocalMapPoint(double x, double y) {
+            this.x = x;
+            this.y = y;
+        }
     }
+
 
     public MapPanel(ClickListener clickListener) {
         this.clickListener = clickListener;

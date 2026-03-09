@@ -8,6 +8,7 @@ import java.awt.geom.AffineTransform;
 import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
@@ -18,13 +19,44 @@ import static org.example.mapgame.GameConfig.BLACK_THRESHOLD;
 public class LevelGenerator {
     private final Random random = new Random();
 
-    private record Node(int x, int y) {
+    private static final class Node {
+        private final int x;
+        private final int y;
+
+        private Node(int x, int y) {
+            this.x = x;
+            this.y = y;
+        }
     }
 
-    private record AngleAnchor(int x, int y, double angleRad) {
+    private static final class AngleAnchor {
+        private final int x;
+        private final int y;
+        private final double angleRad;
+
+        private AngleAnchor(int x, int y, double angleRad) {
+            this.x = x;
+            this.y = y;
+            this.angleRad = angleRad;
+        }
     }
 
-    private record GeneratedMap(BufferedImage mapImage, List<RoadPath> roads) {
+    private static final class GeneratedMap {
+        private final BufferedImage mapImage;
+        private final List<RoadPath> roads;
+
+        private GeneratedMap(BufferedImage mapImage, List<RoadPath> roads) {
+            this.mapImage = mapImage;
+            this.roads = roads;
+        }
+
+        private BufferedImage mapImage() {
+            return mapImage;
+        }
+
+        private List<RoadPath> roads() {
+            return roads;
+        }
     }
 
     public LevelData generateLevel() {
@@ -96,7 +128,7 @@ public class LevelGenerator {
         List<RoadPath> roads = drawRoads(g2);
         g2.dispose();
 
-        return new GeneratedMap(mapImage, List.copyOf(roads));
+        return new GeneratedMap(mapImage, Collections.unmodifiableList(new ArrayList<RoadPath>(roads)));
     }
 
     private List<AngleAnchor> createAngleAnchors() {
@@ -382,7 +414,7 @@ public class LevelGenerator {
         g2.setColor(roadColor);
         g2.draw(road);
 
-        return new RoadPath(List.copyOf(points));
+        return new RoadPath(Collections.unmodifiableList(new ArrayList<MapPoint>(points)));
     }
 
     private void appendFractalRoadSegment(Path2D.Double path, List<MapPoint> points,

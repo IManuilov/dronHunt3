@@ -7,11 +7,12 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.AffineTransform;
+import java.util.Collections;
 import java.util.List;
 
 public class FragmentPanel extends JPanel {
     private LevelData levelData;
-    private List<CarVisual> cars = List.of();
+    private List<CarVisual> cars = Collections.emptyList();
 
     private long fallStartMs = 0L;
     private long fallDurationMs = 0L;

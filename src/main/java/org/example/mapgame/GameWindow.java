@@ -15,6 +15,7 @@ import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
@@ -325,7 +326,7 @@ public class GameWindow {
     }
 
     private void pushCarVisualsToPanels() {
-        List<CarVisual> snapshot = List.copyOf(carVisuals);
+        List<CarVisual> snapshot = Collections.unmodifiableList(new ArrayList<CarVisual>(carVisuals));
         mapPanel.setCars(snapshot);
         fragmentPanel.setCars(snapshot);
     }
