@@ -29,6 +29,12 @@ public class MapPanel extends JPanel {
     private BufferedImage mapImage;
     private List<CarVisual> cars = Collections.emptyList();
 
+    private boolean fragmentGuideVisible = false;
+    private double fragmentCenterX = 0.0;
+    private double fragmentCenterY = 0.0;
+    private final double[] fragmentGuideX = new double[4];
+    private final double[] fragmentGuideY = new double[4];
+
     private int lastClickX = -1;
     private int lastClickY = -1;
 
@@ -52,6 +58,7 @@ public class MapPanel extends JPanel {
     private int dragStartY;
     private double dragStartCenterX;
     private double dragStartCenterY;
+
     private static final class LocalMapPoint {
         private final double x;
         private final double y;
@@ -61,7 +68,6 @@ public class MapPanel extends JPanel {
             this.y = y;
         }
     }
-
 
     public MapPanel(ClickListener clickListener) {
         this.clickListener = clickListener;
@@ -134,18 +140,40 @@ public class MapPanel extends JPanel {
     public void setMapImage(BufferedImage mapImage) {
         this.mapImage = mapImage;
         zoom = 1.0;
-        centerX = GameConfig.MAP_WIDTH / 2.0;
-        centerY = GameConfig.MAP_HEIGHT / 2.0;
+        centerX = mapWidth() / 2.0;
+        centerY = mapHeight() / 2.0;
         fadingTargetX = -1;
         fadingTargetY = -1;
         clickExplosionX = -1;
         clickExplosionY = -1;
+        clearFragmentGuide();
         clampCenter();
         repaint();
     }
 
     public void setCars(List<CarVisual> cars) {
         this.cars = cars;
+        repaint();
+    }
+
+    public void setFragmentGuide(double centerX, double centerY, double[] xs, double[] ys) {
+        if (xs == null || ys == null || xs.length < 4 || ys.length < 4) {
+            clearFragmentGuide();
+            return;
+        }
+
+        this.fragmentGuideVisible = true;
+        this.fragmentCenterX = centerX;
+        this.fragmentCenterY = centerY;
+        for (int i = 0; i < 4; i++) {
+            this.fragmentGuideX[i] = xs[i];
+            this.fragmentGuideY[i] = ys[i];
+        }
+        repaint();
+    }
+
+    public void clearFragmentGuide() {
+        this.fragmentGuideVisible = false;
         repaint();
     }
 
@@ -196,6 +224,9 @@ public class MapPanel extends JPanel {
             return;
         }
 
+        int mapW = mapWidth();
+        int mapH = mapHeight();
+
         int dx1 = drawRect.x;
         int dy1 = drawRect.y;
         int dx2 = drawRect.x + drawRect.width;
@@ -206,10 +237,10 @@ public class MapPanel extends JPanel {
         double right = left + getViewWidth();
         double bottom = top + getViewHeight();
 
-        int sx1 = clamp((int) Math.floor(left), 0, GameConfig.MAP_WIDTH - 1);
-        int sy1 = clamp((int) Math.floor(top), 0, GameConfig.MAP_HEIGHT - 1);
-        int sx2 = clamp((int) Math.ceil(right), sx1 + 1, GameConfig.MAP_WIDTH);
-        int sy2 = clamp((int) Math.ceil(bottom), sy1 + 1, GameConfig.MAP_HEIGHT);
+        int sx1 = clamp((int) Math.floor(left), 0, mapW - 1);
+        int sy1 = clamp((int) Math.floor(top), 0, mapH - 1);
+        int sx2 = clamp((int) Math.ceil(right), sx1 + 1, mapW);
+        int sy2 = clamp((int) Math.ceil(bottom), sy1 + 1, mapH);
 
         g2.drawImage(mapImage, dx1, dy1, dx2, dy2, sx1, sy1, sx2, sy2, null);
 
@@ -217,13 +248,22 @@ public class MapPanel extends JPanel {
         g2.setStroke(new BasicStroke(1.5f));
         g2.drawRect(drawRect.x, drawRect.y, drawRect.width, drawRect.height);
 
+        if (fragmentGuideVisible) {
+            drawFragmentGuide(g2, drawRect);
+        }
+
+        double mapPixelScaleX = drawRect.width / getViewWidth();
+        double mapPixelScaleY = drawRect.height / getViewHeight();
+        int carDiameter = Math.max(2, (int) Math.round(6.0 * Math.min(mapPixelScaleX, mapPixelScaleY)));
+        int carRadius = carDiameter / 2;
+
         for (CarVisual car : cars) {
             int x = mapToScreenX(car.x(), drawRect);
             int y = mapToScreenY(car.y(), drawRect);
-            if (x >= drawRect.x - 3 && x <= drawRect.x + drawRect.width + 3
-                    && y >= drawRect.y - 3 && y <= drawRect.y + drawRect.height + 3) {
+            if (x >= drawRect.x - carRadius && x <= drawRect.x + drawRect.width + carRadius
+                    && y >= drawRect.y - carRadius && y <= drawRect.y + drawRect.height + carRadius) {
                 g2.setColor(car.color());
-                g2.fillOval(x - 3, y - 3, 6, 6);
+                g2.fillOval(x - carRadius, y - carRadius, carDiameter, carDiameter);
             }
         }
 
@@ -287,6 +327,26 @@ public class MapPanel extends JPanel {
         }
     }
 
+    private void drawFragmentGuide(Graphics2D g2, Rectangle drawRect) {
+        int[] sx = new int[4];
+        int[] sy = new int[4];
+        for (int i = 0; i < 4; i++) {
+            sx[i] = mapToScreenX(fragmentGuideX[i], drawRect);
+            sy[i] = mapToScreenY(fragmentGuideY[i], drawRect);
+        }
+
+        g2.setColor(new Color(70, 230, 255, 185));
+        g2.setStroke(new BasicStroke(2.0f));
+        g2.drawPolygon(sx, sy, 4);
+
+        int cx = mapToScreenX(fragmentCenterX, drawRect);
+        int cy = mapToScreenY(fragmentCenterY, drawRect);
+        g2.setColor(new Color(70, 230, 255, 210));
+        g2.fillOval(cx - 4, cy - 4, 8, 8);
+        g2.drawLine(cx - 10, cy, cx + 10, cy);
+        g2.drawLine(cx, cy - 10, cx, cy + 10);
+    }
+
     private void handleClick(MouseEvent e) {
         LocalMapPoint mapPoint = screenToMap(e.getX(), e.getY());
         if (mapPoint == null) {
@@ -294,8 +354,8 @@ public class MapPanel extends JPanel {
             return;
         }
 
-        int mapX = clamp((int) Math.round(mapPoint.x), 0, GameConfig.MAP_WIDTH - 1);
-        int mapY = clamp((int) Math.round(mapPoint.y), 0, GameConfig.MAP_HEIGHT - 1);
+        int mapX = clamp((int) Math.round(mapPoint.x), 0, mapWidth() - 1);
+        int mapY = clamp((int) Math.round(mapPoint.y), 0, mapHeight() - 1);
         clickListener.onMapClick(mapX, mapY);
     }
 
@@ -346,8 +406,8 @@ public class MapPanel extends JPanel {
         double mapY = centerY + (relY - 0.5) * getViewHeight();
 
         return new LocalMapPoint(
-                clamp(mapX, 0.0, GameConfig.MAP_WIDTH - 1.0),
-                clamp(mapY, 0.0, GameConfig.MAP_HEIGHT - 1.0)
+                clamp(mapX, 0.0, mapWidth() - 1.0),
+                clamp(mapY, 0.0, mapHeight() - 1.0)
         );
     }
 
@@ -361,12 +421,20 @@ public class MapPanel extends JPanel {
         return drawRect.y + (int) Math.round(rel * drawRect.height);
     }
 
+    private int mapWidth() {
+        return mapImage != null ? mapImage.getWidth() : GameConfig.MAP_WIDTH;
+    }
+
+    private int mapHeight() {
+        return mapImage != null ? mapImage.getHeight() : GameConfig.MAP_HEIGHT;
+    }
+
     private double getViewWidth() {
-        return GameConfig.MAP_WIDTH / zoom;
+        return mapWidth() / zoom;
     }
 
     private double getViewHeight() {
-        return GameConfig.MAP_HEIGHT / zoom;
+        return mapHeight() / zoom;
     }
 
     private void clampCenter() {
@@ -374,9 +442,9 @@ public class MapPanel extends JPanel {
         double viewH = getViewHeight();
 
         double minX = viewW / 2.0;
-        double maxX = GameConfig.MAP_WIDTH - viewW / 2.0;
+        double maxX = mapWidth() - viewW / 2.0;
         double minY = viewH / 2.0;
-        double maxY = GameConfig.MAP_HEIGHT - viewH / 2.0;
+        double maxY = mapHeight() - viewH / 2.0;
 
         centerX = clamp(centerX, minX, maxX);
         centerY = clamp(centerY, minY, maxY);
@@ -387,7 +455,7 @@ public class MapPanel extends JPanel {
             return new Rectangle(0, 0, 0, 0);
         }
 
-        double mapAspect = (double) GameConfig.MAP_WIDTH / GameConfig.MAP_HEIGHT;
+        double mapAspect = (double) mapWidth() / mapHeight();
         int drawW = panelW;
         int drawH = (int) Math.round(drawW / mapAspect);
 

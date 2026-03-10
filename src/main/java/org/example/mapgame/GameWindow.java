@@ -13,6 +13,8 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,6 +30,11 @@ public class GameWindow {
     private static final long LEFT_HIT_FADE_MS = HIT_ANIMATION_TOTAL_MS - LEFT_HIT_FADE_DELAY_MS;
     private static final long RIGHT_FALL_MS = HIT_ANIMATION_TOTAL_MS;
 
+    private static final int MAX_HIT_REWARD = 200;
+    private static final int MIN_HIT_REWARD = 20;
+    private static final long REWARD_DECAY_PERIOD_MS = 10_000L;
+    private static final double REWARD_DECAY_FACTOR = 0.80;
+
     private final LevelGenerator levelGenerator = new LevelGenerator();
     private final Random random = new Random();
 
@@ -36,7 +43,7 @@ public class GameWindow {
 
     private int score = 0;
     private int levelNumber = 1;
-    private int levelsPassedOnCurrentMap = 0;
+    private int nextMapScoreThreshold = 1000;
 
     private JLabel statusLabel;
     private MapPanel mapPanel;
@@ -57,6 +64,7 @@ public class GameWindow {
     private boolean pendingPostHitTransition = false;
     private boolean pendingRegenerateMap = false;
     private long pendingTransitionAtMs = 0L;
+    private long lastStatusRefreshMs = 0L;
 
     private static class CarState {
         private final RoadPath road;
@@ -81,7 +89,6 @@ public class GameWindow {
     public void showWindow() {
         gameStartMs = System.currentTimeMillis();
         levelStartMs = gameStartMs;
-        currentLevel = levelGenerator.generateLevel();
 
         JFrame frame = new JFrame("Map Fragment Hunt");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -115,6 +122,13 @@ public class GameWindow {
         });
 
         fragmentPanel = new FragmentPanel();
+        fragmentPanel.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                updateLevelGeneratorViewport();
+                updateFragmentGuideOverlay();
+            }
+        });
 
         JPanel content = new JPanel(new GridLayout(1, 2, 8, 8));
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -124,32 +138,36 @@ public class GameWindow {
         frame.add(topPanel, BorderLayout.NORTH);
         frame.add(content, BorderLayout.CENTER);
 
-        applyLevelToViews();
-        updateStatus("Find right fragment on the left map and click near its center.");
-
         frame.setMinimumSize(new Dimension(1100, 700));
         frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setVisible(true);
+
+        updateLevelGeneratorViewport();
+        currentLevel = levelGenerator.generateLevel();
+        applyLevelToViews();
+        updateStatus("Find right fragment on the left map and click near its center.");
 
         Timer timer = new Timer(33, e -> {
             updateCars();
             pushCarVisualsToPanels();
             processPendingPostHitTransition();
             updateFps();
+            refreshDynamicStatus();
         });
         timer.start();
     }
 
     private void regenerateMap() {
         pendingPostHitTransition = false;
+        updateLevelGeneratorViewport();
         currentLevel = levelGenerator.generateLevel();
-        levelsPassedOnCurrentMap = 0;
+
         applyLevelToViews();
         updateStatus("Map updated.");
     }
 
     private void handleMapClick(int mapX, int mapY) {
-        if (pendingPostHitTransition) {
+        if (currentLevel == null || pendingPostHitTransition) {
             return;
         }
 
@@ -163,12 +181,15 @@ public class GameWindow {
             int previousTargetX = currentLevel.targetX();
             int previousTargetY = currentLevel.targetY();
 
-            int reward = 100 + Math.max(0, (int) ((GameConfig.HIT_RADIUS - dist) * 2));
+            int reward = computeCurrentHitReward();
             score += reward;
             levelNumber++;
-            levelsPassedOnCurrentMap++;
 
-            pendingRegenerateMap = levelsPassedOnCurrentMap >= GameConfig.LEVELS_PER_MAP;
+            pendingRegenerateMap = false;
+            while (score >= nextMapScoreThreshold) {
+                pendingRegenerateMap = true;
+                nextMapScoreThreshold += 1000;
+            }
             pendingPostHitTransition = true;
 
             mapPanel.showFadingTarget(previousTargetX, previousTargetY, LEFT_HIT_FADE_MS, LEFT_HIT_FADE_DELAY_MS);
@@ -195,16 +216,60 @@ public class GameWindow {
         pendingPostHitTransition = false;
 
         if (pendingRegenerateMap) {
+            updateLevelGeneratorViewport();
             currentLevel = levelGenerator.generateLevel();
-            levelsPassedOnCurrentMap = 0;
+    
             applyLevelToViews();
         } else {
+            updateLevelGeneratorViewport();
             currentLevel = levelGenerator.generateLevelForExistingMap(currentLevel);
             levelStartMs = System.currentTimeMillis();
             mapPanel.clearLastClick();
             fragmentPanel.setLevelData(currentLevel);
+            updateFragmentGuideOverlay();
             pushCarVisualsToPanels();
         }
+    }
+
+    private void updateLevelGeneratorViewport() {
+        if (fragmentPanel == null) {
+            return;
+        }
+        levelGenerator.setFragmentViewportSize(fragmentPanel.getWidth(), fragmentPanel.getHeight());
+    }
+
+    private void updateFragmentGuideOverlay() {
+        if (mapPanel == null) {
+            return;
+        }
+        if (!GameConfig.GRID_ENABLED || currentLevel == null || fragmentPanel == null) {
+            mapPanel.clearFragmentGuide();
+            return;
+        }
+
+        int panelW = Math.max(1, fragmentPanel.getWidth());
+        int panelH = Math.max(1, fragmentPanel.getHeight());
+        double baseScale = Math.max((double) panelW / GameConfig.MAP_WIDTH,
+                (double) panelH / GameConfig.MAP_HEIGHT);
+        double scale = baseScale * currentLevel.targetZoom();
+        double halfW = panelW / (2.0 * scale);
+        double halfH = panelH / (2.0 * scale);
+
+        double c = Math.cos(currentLevel.targetAngleRad());
+        double s = Math.sin(currentLevel.targetAngleRad());
+        double cx = currentLevel.targetX();
+        double cy = currentLevel.targetY();
+
+        double[] dx = new double[]{-halfW, halfW, halfW, -halfW};
+        double[] dy = new double[]{-halfH, -halfH, halfH, halfH};
+        double[] xs = new double[4];
+        double[] ys = new double[4];
+        for (int i = 0; i < 4; i++) {
+            xs[i] = cx + dx[i] * c - dy[i] * s;
+            ys[i] = cy + dx[i] * s + dy[i] * c;
+        }
+
+        mapPanel.setFragmentGuide(cx, cy, xs, ys);
     }
 
     private void applyLevelToViews() {
@@ -216,6 +281,7 @@ public class GameWindow {
         levelStartMs = System.currentTimeMillis();
         mapPanel.clearLastClick();
         fragmentPanel.setLevelData(currentLevel);
+        updateFragmentGuideOverlay();
         pushCarVisualsToPanels();
     }
 
@@ -343,6 +409,48 @@ public class GameWindow {
         }
     }
 
+    private void refreshDynamicStatus() {
+        if (pendingPostHitTransition || currentLevel == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastStatusRefreshMs < 120L) {
+            return;
+        }
+        lastStatusRefreshMs = now;
+        updateStatus(lastStatusMessage);
+    }
+
+    private int computeCurrentHitReward() {
+        if (currentLevel == null) {
+            return MAX_HIT_REWARD;
+        }
+        long elapsed = Math.max(0L, System.currentTimeMillis() - levelStartMs);
+        double decaySteps = (double) elapsed / REWARD_DECAY_PERIOD_MS;
+        double span = MAX_HIT_REWARD - MIN_HIT_REWARD;
+        double value = MIN_HIT_REWARD + span * Math.pow(REWARD_DECAY_FACTOR, decaySteps);
+        return Math.max(MIN_HIT_REWARD, (int) Math.round(value));
+    }
+
+    private double getCurrentRewardRatio() {
+        double ratio = (double) computeCurrentHitReward() / MAX_HIT_REWARD;
+        return Math.max(0.0, Math.min(1.0, ratio));
+    }
+
+    private String buildRewardBarHtml() {
+        int segments = 20;
+        int filled = (int) Math.round(getCurrentRewardRatio() * segments);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < segments; i++) {
+            if (i < filled) {
+                sb.append("<span style='color:#f0c75e;'>&#9646;</span>");
+            } else {
+                sb.append("<span style='color:#555555;'>&#9646;</span>");
+            }
+        }
+        return sb.toString();
+    }
+
     private void registerShot(boolean hit) {
         shotHistory.add(hit);
         if (shotHistory.size() > MAX_SHOT_HISTORY) {
@@ -373,7 +481,16 @@ public class GameWindow {
         lastStatusMessage = message;
         String totalTime = formatDuration(System.currentTimeMillis() - gameStartMs);
         String levelTime = formatDuration(System.currentTimeMillis() - levelStartMs);
+        int mapW = currentLevel != null ? currentLevel.mapImage().getWidth() : GameConfig.MAP_WIDTH;
+        int mapH = currentLevel != null ? currentLevel.mapImage().getHeight() : GameConfig.MAP_HEIGHT;
+        String mapSize = mapW + "x" + mapH;
+
+        int potentialReward = computeCurrentHitReward();
+        String rewardBar = buildRewardBarHtml();
+
         String text = "Level: " + levelNumber + "   |   Score: " + score + "   |   FPS: " + fps
+                + "   |   Map: " + mapSize
+                + "   |   Potential: " + potentialReward + " " + rewardBar
                 + "   |   Total: " + totalTime + "   |   Level: " + levelTime
                 + "   |   " + message + "   |   " + buildShotHistoryHtml();
         statusLabel.setText("<html><div style='text-align:center;'>" + text + "</div></html>");

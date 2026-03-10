@@ -11,8 +11,14 @@ import java.util.Collections;
 import java.util.List;
 
 public class FragmentPanel extends JPanel {
+    private static final long INTRO_DURATION_MS = 650L;
+
     private LevelData levelData;
     private List<CarVisual> cars = Collections.emptyList();
+
+    private long introStartMs = 0L;
+    private long introDurationMs = INTRO_DURATION_MS;
+    private boolean introActive = false;
 
     private long fallStartMs = 0L;
     private long fallDurationMs = 0L;
@@ -25,6 +31,9 @@ public class FragmentPanel extends JPanel {
     public void setLevelData(LevelData levelData) {
         this.levelData = levelData;
         this.fallActive = false;
+        this.introStartMs = System.currentTimeMillis();
+        this.introDurationMs = INTRO_DURATION_MS;
+        this.introActive = true;
         repaint();
     }
 
@@ -34,6 +43,7 @@ public class FragmentPanel extends JPanel {
     }
 
     public void startFallAnimation(long durationMs) {
+        this.introActive = false;
         this.fallStartMs = System.currentTimeMillis();
         this.fallDurationMs = Math.max(1L, durationMs);
         this.fallActive = true;
@@ -57,9 +67,27 @@ public class FragmentPanel extends JPanel {
             return;
         }
 
-        double baseScale = Math.max((double) panelW / GameConfig.MAP_WIDTH, (double) panelH / GameConfig.MAP_HEIGHT);
+        // Keep fragment scale tied to map pixel density, not full map size.
+        // As map resolution grows, the fragment shows a smaller fraction of the whole map.
+        double baseScale = Math.max((double) panelW / GameConfig.MAP_WIDTH,
+                (double) panelH / GameConfig.MAP_HEIGHT);
         double scale = baseScale * levelData.targetZoom();
         int whiteFadeAlpha = 0;
+
+        if (introActive) {
+            long elapsed = System.currentTimeMillis() - introStartMs;
+            double t = clamp01((double) elapsed / introDurationMs);
+            if (t >= 1.0) {
+                introActive = false;
+            }
+
+            // Monotonic intro zoom: starts slightly zoomed-in and smoothly settles to target scale.
+            double introMultiplier = 1.0 - 0.14 * Math.pow(1.0 - t, 2.0);
+            scale *= introMultiplier;
+
+            double reveal = 1.0 - t;
+            whiteFadeAlpha = Math.max(whiteFadeAlpha, (int) Math.round(255.0 * reveal * reveal));
+        }
 
         if (fallActive) {
             long elapsed = System.currentTimeMillis() - fallStartMs;
@@ -70,7 +98,7 @@ public class FragmentPanel extends JPanel {
             scale *= fallMultiplier;
 
             double fadeT = Math.min(1.0, t);
-            whiteFadeAlpha = (int) Math.round(255.0 * fadeT * fadeT);
+            whiteFadeAlpha = Math.max(whiteFadeAlpha, (int) Math.round(255.0 * fadeT * fadeT));
         }
 
         int cx = panelW / 2;
@@ -103,5 +131,9 @@ public class FragmentPanel extends JPanel {
         g2.drawRect(1, 1, panelW - 3, panelH - 3);
         g2.drawLine(cx - 14, cy, cx + 14, cy);
         g2.drawLine(cx, cy - 14, cx, cy + 14);
+    }
+
+    private double clamp01(double x) {
+        return Math.max(0.0, Math.min(1.0, x));
     }
 }

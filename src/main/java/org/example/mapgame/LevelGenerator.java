@@ -19,6 +19,13 @@ import static org.example.mapgame.GameConfig.BLACK_THRESHOLD;
 public class LevelGenerator {
     private final Random random = new Random();
 
+    private int generatedMapCount = 0;
+    private int currentMapWidth = GameConfig.MAP_WIDTH;
+    private int currentMapHeight = GameConfig.MAP_HEIGHT;
+
+    private int fragmentViewportWidth = 900;
+    private int fragmentViewportHeight = 900;
+
     private static final class Node {
         private final int x;
         private final int y;
@@ -59,6 +66,11 @@ public class LevelGenerator {
         }
     }
 
+    public void setFragmentViewportSize(int width, int height) {
+        this.fragmentViewportWidth = Math.max(1, width);
+        this.fragmentViewportHeight = Math.max(1, height);
+    }
+
     public LevelData generateLevel() {
         GeneratedMap generatedMap = generateMapData();
         return createLevelData(generatedMap.mapImage(), generatedMap.roads());
@@ -69,40 +81,103 @@ public class LevelGenerator {
     }
 
     private LevelData createLevelData(BufferedImage mapImage, List<RoadPath> roads) {
-        int marginX = Math.max(GameConfig.TARGET_MARGIN_X, GameConfig.MAP_WIDTH / 6);
-        int marginY = Math.max(GameConfig.TARGET_MARGIN_Y, GameConfig.MAP_HEIGHT / 6);
+        int mapWidth = mapImage.getWidth();
+        int mapHeight = mapImage.getHeight();
 
-        int targetX = marginX + random.nextInt(Math.max(1, GameConfig.MAP_WIDTH - marginX * 2));
-        int targetY = marginY + random.nextInt(Math.max(1, GameConfig.MAP_HEIGHT - marginY * 2));
-        double targetAngleRad = random.nextDouble() * Math.PI * 2.0;
-        double targetZoom = GameConfig.TARGET_MIN_ZOOM + random.nextDouble() * GameConfig.TARGET_ZOOM_RANGE;
+        double panelW = Math.max(1, fragmentViewportWidth);
+        double panelH = Math.max(1, fragmentViewportHeight);
+        double refBaseScale = Math.max(panelW / GameConfig.MAP_WIDTH, panelH / GameConfig.MAP_HEIGHT);
+        double refHalfW = panelW / refBaseScale / 2.0;
+        double refHalfH = panelH / refBaseScale / 2.0;
+        double maxZoom = GameConfig.TARGET_MIN_ZOOM + GameConfig.TARGET_ZOOM_RANGE;
 
-        return new LevelData(mapImage, roads, targetX, targetY, targetAngleRad, targetZoom);
+        // Pick angle first, then compute minimum zoom that keeps
+        // the rotated fragment fully inside the map with margins.
+        for (int attempt = 0; attempt < 320; attempt++) {
+            double targetAngleRad = random.nextDouble() * Math.PI * 2.0;
+            double cos = Math.abs(Math.cos(targetAngleRad));
+            double sin = Math.abs(Math.sin(targetAngleRad));
+
+            double maxAllowedX = mapWidth / 2.0 - GameConfig.TARGET_MARGIN_X;
+            double maxAllowedY = mapHeight / 2.0 - GameConfig.TARGET_MARGIN_Y;
+            if (maxAllowedX <= 2.0 || maxAllowedY <= 2.0) {
+                break;
+            }
+
+            double needZoomX = (cos * refHalfW + sin * refHalfH) / maxAllowedX;
+            double needZoomY = (sin * refHalfW + cos * refHalfH) / maxAllowedY;
+            double minZoomForFit = Math.max(GameConfig.TARGET_MIN_ZOOM, Math.max(needZoomX, needZoomY));
+            if (minZoomForFit > maxZoom) {
+                continue;
+            }
+
+            double targetZoom = minZoomForFit + random.nextDouble() * (maxZoom - minZoomForFit);
+
+            double halfViewW = refHalfW / targetZoom;
+            double halfViewH = refHalfH / targetZoom;
+
+            int marginX = (int) Math.ceil(cos * halfViewW + sin * halfViewH) + 1;
+            int marginY = (int) Math.ceil(sin * halfViewW + cos * halfViewH) + 1;
+            marginX = Math.max(marginX, GameConfig.TARGET_MARGIN_X);
+            marginY = Math.max(marginY, GameConfig.TARGET_MARGIN_Y);
+
+            int rangeX = mapWidth - marginX * 2;
+            int rangeY = mapHeight - marginY * 2;
+            if (rangeX <= 0 || rangeY <= 0) {
+                continue;
+            }
+
+            int targetX = marginX + random.nextInt(rangeX);
+            int targetY = marginY + random.nextInt(rangeY);
+            return new LevelData(mapImage, roads, targetX, targetY, targetAngleRad, targetZoom);
+        }
+
+        int fallbackX = mapWidth / 2;
+        int fallbackY = mapHeight / 2;
+        double fallbackAngle = 0.0;
+        double fallbackZoom = maxZoom;
+        return new LevelData(mapImage, roads, fallbackX, fallbackY, fallbackAngle, fallbackZoom);
     }
 
     private GeneratedMap generateMapData() {
-        BufferedImage mapImage = new BufferedImage(GameConfig.MAP_WIDTH, GameConfig.MAP_HEIGHT, BufferedImage.TYPE_INT_RGB);
+        currentMapWidth = nextMapDimension(GameConfig.MAP_WIDTH, generatedMapCount);
+        currentMapHeight = nextMapDimension(GameConfig.MAP_HEIGHT, generatedMapCount);
+        generatedMapCount++;
+
+        BufferedImage mapImage = new BufferedImage(currentMapWidth, currentMapHeight, BufferedImage.TYPE_INT_RGB);
         Graphics2D g2 = mapImage.createGraphics();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         g2.setColor(new Color(18, 22, 28));
-        g2.fillRect(0, 0, GameConfig.MAP_WIDTH, GameConfig.MAP_HEIGHT);
+        g2.fillRect(0, 0, currentMapWidth, currentMapHeight);
 
-        List<AngleAnchor> angleAnchors = createAngleAnchors();
+        double areaScale = ((double) currentMapWidth * currentMapHeight)
+                / ((double) GameConfig.MAP_WIDTH * GameConfig.MAP_HEIGHT);
+
+        int anchorCount = scaleCount(GameConfig.RECT_ANGLE_ANCHOR_COUNT, areaScale, 8);
+        int rectCount = scaleCount(GameConfig.MAP_RECTANGLES, areaScale, 8);
+        int roadNodeCount = scaleCount(GameConfig.ROAD_NODE_COUNT, areaScale, 12);
+
+
+        List<AngleAnchor> angleAnchors = createAngleAnchors(anchorCount);
 
         int baseRectCount = 1400;
-        double sizeScale = Math.sqrt((double) baseRectCount / Math.max(1, GameConfig.MAP_RECTANGLES));
-        sizeScale = Math.max(0.45, Math.min(2.2, sizeScale));
+        double sizeScale = Math.sqrt((double) baseRectCount / Math.max(1, rectCount));
+        sizeScale = Math.max(0.45, Math.min(8.2, sizeScale));
 
-        int minRectSize = Math.max(12, (int) Math.round(30 * sizeScale));
-        int maxRectSize = Math.max(minRectSize + 2, (int) Math.round(554 * sizeScale));
+        int minRectSize = 50;//Math.max(12, (int) Math.round(30 * sizeScale));
+        int maxRectSize = 700;//Math.max(minRectSize + 2, (int) Math.round(554 * sizeScale));
         int rectSpan = maxRectSize - minRectSize + 1;
 
-        for (int i = 0; i < GameConfig.MAP_RECTANGLES; i++) {
+        System.out.println("mapw "+ currentMapWidth + "  anch " + anchorCount + "  rect " + rectCount + "  nodes " + roadNodeCount
+            + "  maxRectSize " + maxRectSize);
+
+
+        for (int i = 0; i < rectCount; i++) {
             int w = minRectSize + (int) (random.nextDouble() * random.nextDouble() * rectSpan);
             int h = minRectSize + (int) (random.nextDouble() * random.nextDouble() * rectSpan);
-            int cx = random.nextInt(GameConfig.MAP_WIDTH);
-            int cy = random.nextInt(GameConfig.MAP_HEIGHT);
+            int cx = random.nextInt(currentMapWidth);
+            int cy = random.nextInt(currentMapHeight);
 
             int area = w * h;
             int minArea = minRectSize * minRectSize;
@@ -125,20 +200,47 @@ public class LevelGenerator {
             g2.setTransform(old);
         }
 
-        List<RoadPath> roads = drawRoads(g2);
+        List<RoadPath> roads = drawRoads(g2, roadNodeCount);
+        if (GameConfig.GRID_ENABLED) {
+            drawGrid(g2);
+        }
         g2.dispose();
 
         return new GeneratedMap(mapImage, Collections.unmodifiableList(new ArrayList<RoadPath>(roads)));
     }
 
-    private List<AngleAnchor> createAngleAnchors() {
-        int overflowX = (int) Math.round(GameConfig.MAP_WIDTH * GameConfig.RECT_ANGLE_ANCHOR_OVERFLOW_RATIO);
-        int overflowY = (int) Math.round(GameConfig.MAP_HEIGHT * GameConfig.RECT_ANGLE_ANCHOR_OVERFLOW_RATIO);
+    private void drawGrid(Graphics2D g2) {
+        int step = Math.max(8, GameConfig.GRID_STEP);
+        g2.setColor(new Color(255, 255, 255, clamp(GameConfig.GRID_ALPHA, 0, 255)));
+        g2.setStroke(new BasicStroke(1f));
+
+        for (int x = 0; x <= currentMapWidth; x += step) {
+            g2.drawLine(x, 0, x, currentMapHeight);
+        }
+        for (int y = 0; y <= currentMapHeight; y += step) {
+            g2.drawLine(0, y, currentMapWidth, y);
+        }
+    }
+    private int nextMapDimension(int baseDimension, int mapIndex) {
+        int start = Math.max(320, baseDimension / 4);
+        double growth = Math.pow(1.09, mapIndex);
+        int value = (int) Math.round(start * growth);
+        return Math.min(baseDimension, value);
+    }
+
+    private int scaleCount(int baseCount, double areaScale, int minValue) {
+        int value = (int) Math.round(baseCount * areaScale);
+        return Math.max(minValue, value);
+    }
+
+    private List<AngleAnchor> createAngleAnchors(int anchorCount) {
+        int overflowX = (int) Math.round(currentMapWidth * GameConfig.RECT_ANGLE_ANCHOR_OVERFLOW_RATIO);
+        int overflowY = (int) Math.round(currentMapHeight * GameConfig.RECT_ANGLE_ANCHOR_OVERFLOW_RATIO);
 
         List<AngleAnchor> anchors = new ArrayList<>();
-        for (int i = 0; i < GameConfig.RECT_ANGLE_ANCHOR_COUNT; i++) {
-            int x = -overflowX + random.nextInt(GameConfig.MAP_WIDTH + overflowX * 2);
-            int y = -overflowY + random.nextInt(GameConfig.MAP_HEIGHT + overflowY * 2);
+        for (int i = 0; i < anchorCount; i++) {
+            int x = -overflowX + random.nextInt(currentMapWidth + overflowX * 2);
+            int y = -overflowY + random.nextInt(currentMapHeight + overflowY * 2);
             double angleRad = random.nextDouble() * Math.PI * 2.0;
             anchors.add(new AngleAnchor(x, y, angleRad));
         }
@@ -171,8 +273,8 @@ public class LevelGenerator {
 
         int retryRadius = 94;
         for (int attempt = 0; attempt < 5; attempt++) {
-            int nx = clamp(x + random.nextInt(retryRadius * 2 + 1) - retryRadius, 0, GameConfig.MAP_WIDTH - 1);
-            int ny = clamp(y + random.nextInt(retryRadius * 2 + 1) - retryRadius, 0, GameConfig.MAP_HEIGHT - 1);
+            int nx = clamp(x + random.nextInt(retryRadius * 2 + 1) - retryRadius, 0, currentMapWidth - 1);
+            int ny = clamp(y + random.nextInt(retryRadius * 2 + 1) - retryRadius, 0, currentMapHeight - 1);
             Color nearby = new Color(mapImage.getRGB(nx, ny));
             if (!isTooDark(nearby)) {
                 return new Color(nearby.getRed(), nearby.getGreen(), nearby.getBlue(), alpha);
@@ -190,17 +292,7 @@ public class LevelGenerator {
 
     private Color randomWarmColor(int alpha) {
         float hue = random.nextFloat() * 0.59f;
-
-        float satPick = random.nextFloat();
         float saturation = 0.09f + random.nextFloat() * 0.60f;
-//        if (satPick < 0.35f) {
-//            saturation = 0.18f + random.nextFloat() * 0.16f;
-//        } else if (satPick < 0.8f) {
-//            saturation = 0.34f + random.nextFloat() * 0.22f;
-//        } else {
-//            saturation = 0.56f + random.nextFloat() * 0.18f;
-//        }
-
         float brightness = 0.40f + random.nextFloat() * 0.39f;
         int rgb = Color.HSBtoRGB(hue, saturation, brightness);
         return new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, alpha);
@@ -214,18 +306,18 @@ public class LevelGenerator {
         return new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, alpha);
     }
 
-    private List<RoadPath> drawRoads(Graphics2D g2) {
-        int overflowX = (int) Math.round(GameConfig.MAP_WIDTH * GameConfig.ROAD_OVERFLOW_RATIO);
-        int overflowY = (int) Math.round(GameConfig.MAP_HEIGHT * GameConfig.ROAD_OVERFLOW_RATIO);
+    private List<RoadPath> drawRoads(Graphics2D g2, int roadNodeCount) {
+        int overflowX = (int) Math.round(currentMapWidth * GameConfig.ROAD_OVERFLOW_RATIO);
+        int overflowY = (int) Math.round(currentMapHeight * GameConfig.ROAD_OVERFLOW_RATIO);
 
         List<Node> nodes = new ArrayList<>();
-        int maxAttempts = GameConfig.ROAD_NODE_COUNT * 120;
+        int maxAttempts = roadNodeCount * 120;
         int attempts = 0;
 
-        while (nodes.size() < GameConfig.ROAD_NODE_COUNT && attempts < maxAttempts) {
+        while (nodes.size() < roadNodeCount && attempts < maxAttempts) {
             attempts++;
-            int x = -overflowX + random.nextInt(GameConfig.MAP_WIDTH + overflowX * 2);
-            int y = -overflowY + random.nextInt(GameConfig.MAP_HEIGHT + overflowY * 2);
+            int x = -overflowX + random.nextInt(currentMapWidth + overflowX * 2);
+            int y = -overflowY + random.nextInt(currentMapHeight + overflowY * 2);
             Node candidate = new Node(x, y);
 
             if (isFarFromExistingNodes(candidate, nodes, GameConfig.ROAD_MIN_NODE_SPACING)) {
@@ -439,10 +531,10 @@ public class LevelGenerator {
         midX += Math.cos(angle) * shift;
         midY += Math.sin(angle) * shift;
 
-        int overflowX = (int) Math.round(GameConfig.MAP_WIDTH * GameConfig.ROAD_OVERFLOW_RATIO);
-        int overflowY = (int) Math.round(GameConfig.MAP_HEIGHT * GameConfig.ROAD_OVERFLOW_RATIO);
-        midX = clamp((int) Math.round(midX), -overflowX, GameConfig.MAP_WIDTH - 1 + overflowX);
-        midY = clamp((int) Math.round(midY), -overflowY, GameConfig.MAP_HEIGHT - 1 + overflowY);
+        int overflowX = (int) Math.round(currentMapWidth * GameConfig.ROAD_OVERFLOW_RATIO);
+        int overflowY = (int) Math.round(currentMapHeight * GameConfig.ROAD_OVERFLOW_RATIO);
+        midX = clamp((int) Math.round(midX), -overflowX, currentMapWidth - 1 + overflowX);
+        midY = clamp((int) Math.round(midY), -overflowY, currentMapHeight - 1 + overflowY);
 
         appendFractalRoadSegment(path, points, x1, y1, midX, midY, depth + 1);
         appendFractalRoadSegment(path, points, midX, midY, x2, y2, depth + 1);

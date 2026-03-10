@@ -1,15 +1,15 @@
 package org.example.mapgame;
 
 public final class GameConfig {
-    public static final int MAP_WIDTH = 2700;
-    public static final int MAP_HEIGHT = 2700;
-    public static final int MAP_RECTANGLES = 3200;
+    public static final int MAP_WIDTH = 5700;
+    public static final int MAP_HEIGHT = 5700;
+    public static final int MAP_RECTANGLES = 7200;
 
-    public static final int RECT_ANGLE_ANCHOR_COUNT = 40;
+    public static final int RECT_ANGLE_ANCHOR_COUNT = 400;
     public static final double RECT_ANGLE_ANCHOR_OVERFLOW_RATIO = 0.12;
     public static final double LOCAL_ANGLE_JITTER_RAD = Math.toRadians(9.0);
 
-    public static final int ROAD_NODE_COUNT = 162;
+    public static final int ROAD_NODE_COUNT = 862;
     public static final int ROAD_LINKS_PER_NODE = 6;
     public static final int ROAD_MAX_EDGES_PER_NODE = 6;
     public static final int ROAD_DIRECTION_SECTORS = 8;
@@ -20,14 +20,18 @@ public final class GameConfig {
     public static final double ROAD_OVERFLOW_RATIO = 0.30;
 
     public static final int HIT_RADIUS = 45;
-    public static final int LEVELS_PER_MAP = 3;
+    public static final int LEVELS_PER_MAP = 1;
 
     public static final int TARGET_MARGIN_X = 60;
     public static final int TARGET_MARGIN_Y = 50;
-    public static final double TARGET_MIN_ZOOM = 2.4;
-    public static final double TARGET_ZOOM_RANGE = 1.8;
+    public static final double TARGET_MIN_ZOOM = 8.4;
+    public static final double TARGET_ZOOM_RANGE = 2.2;
 
     public static final int BLACK_THRESHOLD = 29;
+
+    public static final boolean GRID_ENABLED = false;
+    public static final int GRID_STEP = 100;
+    public static final int GRID_ALPHA = 70;
 
     private GameConfig() {
     }
