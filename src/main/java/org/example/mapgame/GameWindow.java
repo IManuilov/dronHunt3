@@ -327,7 +327,7 @@ public class GameWindow {
         float saturation = 0.75f + random.nextFloat() * 0.2f;
         float brightness = 0.88f + random.nextFloat() * 0.12f;
         int rgb = Color.HSBtoRGB(hue, saturation, brightness);
-        return new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+        return new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, 190);
     }
 
     private double[] buildCumulativeLengths(RoadPath road) {

@@ -9,10 +9,8 @@ import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
-import java.util.Set;
 
 import static org.example.mapgame.GameConfig.BLACK_THRESHOLD;
 
@@ -25,16 +23,6 @@ public class LevelGenerator {
 
     private int fragmentViewportWidth = 900;
     private int fragmentViewportHeight = 900;
-
-    private static final class Node {
-        private final int x;
-        private final int y;
-
-        private Node(int x, int y) {
-            this.x = x;
-            this.y = y;
-        }
-    }
 
     private static final class AngleAnchor {
         private final int x;
@@ -167,40 +155,19 @@ public class LevelGenerator {
 
         int minRectSize = 50;//Math.max(12, (int) Math.round(30 * sizeScale));
         int maxRectSize = 700;//Math.max(minRectSize + 2, (int) Math.round(554 * sizeScale));
-        int rectSpan = maxRectSize - minRectSize + 1;
 
         System.out.println("mapw "+ currentMapWidth + "  anch " + anchorCount + "  rect " + rectCount + "  nodes " + roadNodeCount
             + "  maxRectSize " + maxRectSize);
 
+        drawPrimaryRectangles(g2, mapImage, rectCount, minRectSize, maxRectSize, angleAnchors);
+        int smallRectCount = Math.max(8, rectCount * 14);
+        drawSecondaryRectangles(g2, mapImage, smallRectCount, 10, 60, angleAnchors);
 
-        for (int i = 0; i < rectCount; i++) {
-            int w = minRectSize + (int) (random.nextDouble() * random.nextDouble() * rectSpan);
-            int h = minRectSize + (int) (random.nextDouble() * random.nextDouble() * rectSpan);
-            int cx = random.nextInt(currentMapWidth);
-            int cy = random.nextInt(currentMapHeight);
+        drawSecondaryRectangles(g2, mapImage, smallRectCount*4, 3, 15, angleAnchors);
 
-            int area = w * h;
-            int minArea = minRectSize * minRectSize;
-            int maxArea = maxRectSize * maxRectSize;
-            double t = (double) (area - minArea) / (maxArea - minArea);
-            t = Math.max(0.0, Math.min(1.0, t));
-            int alpha = (int) Math.round(220 - t * 150);
-            Color color = random.nextDouble() < 0.80
-                    ? colorFromMapAtPointOrGenerated(mapImage, cx, cy, alpha)
-                    : randomWarmColor(alpha);
-
-            double angle = getNearestAnchorAngle(angleAnchors, cx, cy)
-                    + (random.nextDouble() - 0.5) * 2.0 * GameConfig.LOCAL_ANGLE_JITTER_RAD;
-
-            AffineTransform old = g2.getTransform();
-            g2.translate(cx, cy);
-            g2.rotate(angle);
-            g2.setColor(color);
-            g2.fillRect(-w / 2, -h / 2, w, h);
-            g2.setTransform(old);
-        }
-
-        List<RoadPath> roads = drawRoads(g2, roadNodeCount);
+        List<RoadPath> roads = new RoadNetworkBuilder(currentMapWidth, currentMapHeight, random).buildRoadPaths(roadNodeCount);
+        drawRoadsideRects(g2, roads);
+        drawRoads(g2, roads);
         if (GameConfig.GRID_ENABLED) {
             drawGrid(g2);
         }
@@ -209,6 +176,74 @@ public class LevelGenerator {
         return new GeneratedMap(mapImage, Collections.unmodifiableList(new ArrayList<RoadPath>(roads)));
     }
 
+    private void drawPrimaryRectangles(Graphics2D g2,
+                                       BufferedImage mapImage,
+                                       int rectCount,
+                                       int minRectSize,
+                                       int maxRectSize,
+                                       List<AngleAnchor> angleAnchors) {
+        RectanglePainter.drawRectangles(
+                g2,
+                mapImage,
+                currentMapWidth,
+                currentMapHeight,
+                rectCount,
+                minRectSize,
+                maxRectSize,
+                random,
+                new RectanglePainter.AngleProvider() {
+                    @Override
+                    public double angleRadAt(int x, int y) {
+                        return getNearestAnchorAngle(angleAnchors, x, y);
+                    }
+                },
+                new RectanglePainter.ColorProvider() {
+                    @Override
+                    public Color colorAt(BufferedImage img, int x, int y, int w, int h, int alpha) {
+                        if (random.nextDouble() < 0.80) {
+                            return colorFromMapAtPointOrGenerated(img, x, y, alpha);
+                        }
+                        return randomWarmColor(alpha);
+                    }
+                },
+                GameConfig.LOCAL_ANGLE_JITTER_RAD);
+    }
+
+    private void drawSecondaryRectangles(Graphics2D g2,
+                                         BufferedImage mapImage,
+                                         int rectCount,
+                                         int minRectSize,
+                                         int maxRectSize,
+                                         List<AngleAnchor> angleAnchors) {
+        RectanglePainter.drawRectangles(
+                g2,
+                mapImage,
+                currentMapWidth,
+                currentMapHeight,
+                rectCount,
+                minRectSize,
+                maxRectSize,
+                random,
+                new RectanglePainter.AngleProvider() {
+                    @Override
+                    public double angleRadAt(int x, int y) {
+                        return getNearestAnchorAngle(angleAnchors, x, y);
+                    }
+                },
+                new RectanglePainter.ColorProvider() {
+                    @Override
+                    public Color colorAt(BufferedImage img, int x, int y, int w, int h, int alpha) {
+                        int softAlpha = clamp((int) Math.round(alpha * 0.55), 18, 150);
+                        int radius = 2 * Math.max(1, Math.max(w, h));
+                        double angle = random.nextDouble() * Math.PI * 2.0;
+                        double distance = Math.sqrt(random.nextDouble()) * radius;
+                        int sx = clamp((int) Math.round(x + Math.cos(angle) * distance), 0, currentMapWidth - 1);
+                        int sy = clamp((int) Math.round(y + Math.sin(angle) * distance), 0, currentMapHeight - 1);
+                        return colorFromMapAtPointWithVariation(img, sx, sy, softAlpha);
+                    }
+                },
+                GameConfig.LOCAL_ANGLE_JITTER_RAD);
+    }
     private void drawGrid(Graphics2D g2) {
         int step = Math.max(8, GameConfig.GRID_STEP);
         g2.setColor(new Color(255, 255, 255, clamp(GameConfig.GRID_ALPHA, 0, 255)));
@@ -265,6 +300,31 @@ public class LevelGenerator {
         return best.angleRad;
     }
 
+    private Color colorFromMapAtPointWithVariation(BufferedImage mapImage, int x, int y, int alpha) {
+        Color base = new Color(mapImage.getRGB(x, y));
+
+        int retryRadius = 44;
+        if (isTooDark(base)) {
+            for (int attempt = 0; attempt < 5; attempt++) {
+                int nx = clamp(x + random.nextInt(retryRadius * 2 + 1) - retryRadius, 0, currentMapWidth - 1);
+                int ny = clamp(y + random.nextInt(retryRadius * 2 + 1) - retryRadius, 0, currentMapHeight - 1);
+                Color nearby = new Color(mapImage.getRGB(nx, ny));
+                if (!isTooDark(nearby)) {
+                    base = nearby;
+                    break;
+                }
+            }
+        }
+
+        int dr = random.nextInt(31) - 15;
+        int dg = random.nextInt(31) - 15;
+        int db = random.nextInt(31) - 15;
+
+        int r = clamp(base.getRed() + dr, 0, 255);
+        int g = clamp(base.getGreen() + dg, 0, 255);
+        int b = clamp(base.getBlue() + db, 0, 255);
+        return new Color(r, g, b, alpha);
+    }
     private Color colorFromMapAtPointOrGenerated(BufferedImage mapImage, int x, int y, int alpha) {
         Color base = new Color(mapImage.getRGB(x, y));
         if (!isTooDark(base)) {
@@ -298,246 +358,158 @@ public class LevelGenerator {
         return new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, alpha);
     }
 
-    private Color randomCoolDarkColor(int alpha) {
-        float hue = 0.50f + random.nextFloat() * 0.22f;
-        float saturation = 0.35f + random.nextFloat() * 0.45f;
-        float brightness = 0.18f + random.nextFloat() * 0.28f;
-        int rgb = Color.HSBtoRGB(hue, saturation, brightness);
-        return new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, alpha);
+    private void drawRoads(Graphics2D g2, List<RoadPath> roads) {
+        for (RoadPath road : roads) {
+            drawRoadPath(g2, road);
+        }
     }
 
-    private List<RoadPath> drawRoads(Graphics2D g2, int roadNodeCount) {
-        int overflowX = (int) Math.round(currentMapWidth * GameConfig.ROAD_OVERFLOW_RATIO);
-        int overflowY = (int) Math.round(currentMapHeight * GameConfig.ROAD_OVERFLOW_RATIO);
-
-        List<Node> nodes = new ArrayList<>();
-        int maxAttempts = roadNodeCount * 120;
-        int attempts = 0;
-
-        while (nodes.size() < roadNodeCount && attempts < maxAttempts) {
-            attempts++;
-            int x = -overflowX + random.nextInt(currentMapWidth + overflowX * 2);
-            int y = -overflowY + random.nextInt(currentMapHeight + overflowY * 2);
-            Node candidate = new Node(x, y);
-
-            if (isFarFromExistingNodes(candidate, nodes, GameConfig.ROAD_MIN_NODE_SPACING)) {
-                nodes.add(candidate);
-            }
-        }
-
-        Set<Long> edges = new HashSet<>();
-        int[] degrees = new int[nodes.size()];
-        for (int i = 0; i < nodes.size(); i++) {
-            connectNodeWithDirectionalSpread(nodes, i, edges, degrees);
-        }
-
-        List<RoadPath> roads = new ArrayList<>();
-        for (long edge : edges) {
-            int a = (int) (edge >> 32);
-            int b = (int) (edge & 0xFFFFFFFFL);
-            RoadPath road = drawRoadBetweenNodes(g2, nodes.get(a), nodes.get(b));
-            if (road != null && road.points().size() >= 2) {
-                roads.add(road);
-            }
-        }
-        return roads;
-    }
-
-    private boolean isFarFromExistingNodes(Node candidate, List<Node> nodes, int minSpacing) {
-        int minDistSq = minSpacing * minSpacing;
-        for (Node n : nodes) {
-            int dx = candidate.x - n.x;
-            int dy = candidate.y - n.y;
-            int distSq = dx * dx + dy * dy;
-            if (distSq < minDistSq) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private void connectNodeWithDirectionalSpread(List<Node> nodes, int index, Set<Long> edges, int[] degrees) {
-        if (degrees[index] >= GameConfig.ROAD_MAX_EDGES_PER_NODE) {
+    private void drawRoadPath(Graphics2D g2, RoadPath roadPath) {
+        List<MapPoint> points = roadPath.points();
+        if (points.size() < 2) {
             return;
-        }
-
-        Node center = nodes.get(index);
-        List<Integer> candidates = collectCandidatesSortedByDistance(nodes, index);
-        if (candidates.isEmpty()) {
-            return;
-        }
-
-        boolean[] usedSector = new boolean[GameConfig.ROAD_DIRECTION_SECTORS];
-        List<Double> usedAngles = new ArrayList<>();
-        int connected = 0;
-
-        for (int candidate : candidates) {
-            if (connected >= GameConfig.ROAD_LINKS_PER_NODE) {
-                break;
-            }
-
-            Node other = nodes.get(candidate);
-            double angle = Math.atan2(other.y - center.y, other.x - center.x);
-            int sector = angleToSector(angle);
-
-            if (usedSector[sector]) {
-                continue;
-            }
-
-            if (tryAddEdge(edges, index, candidate, degrees)) {
-                usedSector[sector] = true;
-                usedAngles.add(angle);
-                connected++;
-            }
-        }
-
-        for (int candidate : candidates) {
-            if (connected >= GameConfig.ROAD_LINKS_PER_NODE) {
-                break;
-            }
-
-            Node other = nodes.get(candidate);
-            double angle = Math.atan2(other.y - center.y, other.x - center.x);
-            if (!isAngleFarEnough(angle, usedAngles, GameConfig.ROAD_MIN_ANGLE_SEPARATION_RAD)) {
-                continue;
-            }
-
-            if (tryAddEdge(edges, index, candidate, degrees)) {
-                usedAngles.add(angle);
-                connected++;
-            }
-        }
-    }
-
-    private List<Integer> collectCandidatesSortedByDistance(List<Node> nodes, int index) {
-        Node center = nodes.get(index);
-        List<Integer> candidates = new ArrayList<>();
-
-        for (int j = 0; j < nodes.size(); j++) {
-            if (j == index) {
-                continue;
-            }
-
-            Node other = nodes.get(j);
-            double dist = Math.hypot(center.x - other.x, center.y - other.y);
-            if (dist >= GameConfig.ROAD_MIN_DIST && dist <= GameConfig.ROAD_MAX_DIST) {
-                candidates.add(j);
-            }
-        }
-
-        candidates.sort((a, b) -> {
-            Node na = nodes.get(a);
-            Node nb = nodes.get(b);
-            double da = Math.hypot(center.x - na.x, center.y - na.y);
-            double db = Math.hypot(center.x - nb.x, center.y - nb.y);
-            return Double.compare(da, db);
-        });
-
-        return candidates;
-    }
-
-    private int angleToSector(double angle) {
-        double normalized = angle;
-        while (normalized < 0) {
-            normalized += Math.PI * 2.0;
-        }
-        while (normalized >= Math.PI * 2.0) {
-            normalized -= Math.PI * 2.0;
-        }
-
-        int sector = (int) (normalized / (Math.PI * 2.0) * GameConfig.ROAD_DIRECTION_SECTORS);
-        return clamp(sector, 0, GameConfig.ROAD_DIRECTION_SECTORS - 1);
-    }
-
-    private boolean isAngleFarEnough(double angle, List<Double> usedAngles, double minSeparation) {
-        for (double used : usedAngles) {
-            double diff = Math.abs(angle - used);
-            if (diff > Math.PI) {
-                diff = Math.PI * 2.0 - diff;
-            }
-            if (diff < minSeparation) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private boolean tryAddEdge(Set<Long> edges, int i, int j, int[] degrees) {
-        if (i == j) {
-            return false;
-        }
-        if (degrees[i] >= GameConfig.ROAD_MAX_EDGES_PER_NODE || degrees[j] >= GameConfig.ROAD_MAX_EDGES_PER_NODE) {
-            return false;
-        }
-
-        long key = edgeKey(i, j);
-        if (!edges.add(key)) {
-            return false;
-        }
-
-        degrees[i]++;
-        degrees[j]++;
-        return true;
-    }
-
-    private long edgeKey(int i, int j) {
-        int a = Math.min(i, j);
-        int b = Math.max(i, j);
-        return (((long) a) << 32) | (b & 0xFFFFFFFFL);
-    }
-
-    private RoadPath drawRoadBetweenNodes(Graphics2D g2, Node a, Node b) {
-        double dist = Math.hypot(b.x - a.x, b.y - a.y);
-        if (dist < 1.0) {
-            return null;
         }
 
         Path2D.Double road = new Path2D.Double();
-        road.moveTo(a.x, a.y);
-
-        List<MapPoint> points = new ArrayList<>();
-        points.add(new MapPoint(a.x, a.y));
-        appendFractalRoadSegment(road, points, a.x, a.y, b.x, b.y, 0);
+        MapPoint start = points.get(0);
+        road.moveTo(start.x(), start.y());
+        for (int i = 1; i < points.size(); i++) {
+            MapPoint p = points.get(i);
+            road.lineTo(p.x(), p.y());
+        }
 
         float roadWidth = 2.0f + random.nextFloat() * 2.6f;
-        Color roadColor = randomCoolDarkColor(185 + random.nextInt(50));
-
+        Color roadColor = roadPath.color();
         g2.setStroke(new BasicStroke(roadWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         g2.setColor(roadColor);
         g2.draw(road);
-
-        return new RoadPath(Collections.unmodifiableList(new ArrayList<MapPoint>(points)));
     }
 
-    private void appendFractalRoadSegment(Path2D.Double path, List<MapPoint> points,
-                                          double x1, double y1, double x2, double y2, int depth) {
-        double dx = x2 - x1;
-        double dy = y2 - y1;
-        double dist = Math.hypot(dx, dy);
-
-        if (dist < 9.0) {
-            path.lineTo(x2, y2);
-            points.add(new MapPoint(x2, y2));
+    private void drawRoadsideRects(Graphics2D g2, List<RoadPath> roads) {
+        if (roads.isEmpty()) {
             return;
         }
 
-        double midX = (x1 + x2) * 0.5;
-        double midY = (y1 + y2) * 0.5;
+        double areaScale = ((double) currentMapWidth * currentMapHeight)
+                / ((double) GameConfig.MAP_WIDTH * GameConfig.MAP_HEIGHT);
+        int roadsideRectCount = Math.max(1, (int) Math.round(500_000 * areaScale));
 
-        double decay = Math.pow(0.70, depth);
-        double maxShift = dist * 0.32 * decay;
-        double shift = random.nextDouble() * maxShift;
-        double angle = random.nextDouble() * Math.PI * 2.0;
-        midX += Math.cos(angle) * shift;
-        midY += Math.sin(angle) * shift;
+        List<Double> roadLengths = new ArrayList<>(roads.size());
+        List<Double> cumulativeLengths = new ArrayList<>(roads.size());
+        double totalLength = 0.0;
 
-        int overflowX = (int) Math.round(currentMapWidth * GameConfig.ROAD_OVERFLOW_RATIO);
-        int overflowY = (int) Math.round(currentMapHeight * GameConfig.ROAD_OVERFLOW_RATIO);
-        midX = clamp((int) Math.round(midX), -overflowX, currentMapWidth - 1 + overflowX);
-        midY = clamp((int) Math.round(midY), -overflowY, currentMapHeight - 1 + overflowY);
+        for (RoadPath road : roads) {
+            double length = computeRoadLength(road);
+            roadLengths.add(length);
+            totalLength += length;
+            cumulativeLengths.add(totalLength);
+        }
 
-        appendFractalRoadSegment(path, points, x1, y1, midX, midY, depth + 1);
-        appendFractalRoadSegment(path, points, midX, midY, x2, y2, depth + 1);
+        if (totalLength <= 0.0) {
+            return;
+        }
+
+        for (int i = 0; i < roadsideRectCount; i++) {
+            double pick = random.nextDouble() * totalLength;
+            int roadIndex = pickRoadIndexByLength(cumulativeLengths, pick);
+            RoadPath road = roads.get(roadIndex);
+            double roadLength = roadLengths.get(roadIndex);
+            if (roadLength <= 0.0) {
+                continue;
+            }
+
+            MapPoint roadPoint = randomPointOnRoad(road, roadLength);
+            if (roadPoint == null) {
+                continue;
+            }
+
+            double maxOffset = 20;//0.5 + Math.min(22.0, roadLength * 0.04);
+            double offsetAngle = random.nextDouble() * Math.PI * 2.0;
+            double offsetDistance = random.nextDouble() * maxOffset;
+
+            int x = clamp((int) Math.round(roadPoint.x() + Math.cos(offsetAngle) * offsetDistance),
+                    0, currentMapWidth - 1);
+            int y = clamp((int) Math.round(roadPoint.y() + Math.sin(offsetAngle) * offsetDistance),
+                    0, currentMapHeight - 1);
+
+            double distanceRatio = offsetDistance / maxOffset;
+            int w = 9 + (int) (random.nextInt(17) * (distanceRatio));
+            int h = 9 + (int) (random.nextInt(17) * (distanceRatio));
+
+            int maxAlpha = 79;
+            int alpha = clamp((int) Math.round(maxAlpha * (1.0 - distanceRatio)), 8, 80);
+            Color varied = varyColor(road.color(), 16, alpha);
+
+            AffineTransform old = g2.getTransform();
+            g2.translate(x, y);
+            g2.rotate(random.nextDouble() * Math.PI * 2.0);
+            g2.setColor(varied);
+            g2.fillRect(-w / 2, -h / 2, w, h);
+            g2.setTransform(old);
+        }
+    }
+
+    private double computeRoadLength(RoadPath road) {
+        List<MapPoint> points = road.points();
+        if (points.size() < 2) {
+            return 0.0;
+        }
+
+        double length = 0.0;
+        for (int i = 1; i < points.size(); i++) {
+            MapPoint a = points.get(i - 1);
+            MapPoint b = points.get(i);
+            length += Math.hypot(b.x() - a.x(), b.y() - a.y());
+        }
+        return length;
+    }
+
+    private int pickRoadIndexByLength(List<Double> cumulativeLengths, double target) {
+        int low = 0;
+        int high = cumulativeLengths.size() - 1;
+
+        while (low < high) {
+            int mid = (low + high) >>> 1;
+            if (cumulativeLengths.get(mid) < target) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
+
+    private MapPoint randomPointOnRoad(RoadPath road, double roadLength) {
+        List<MapPoint> points = road.points();
+        if (points.size() < 2 || roadLength <= 0.0) {
+            return null;
+        }
+
+        double distance = random.nextDouble() * roadLength;
+        for (int i = 1; i < points.size(); i++) {
+            MapPoint a = points.get(i - 1);
+            MapPoint b = points.get(i);
+            double segLen = Math.hypot(b.x() - a.x(), b.y() - a.y());
+            if (segLen <= 0.0) {
+                continue;
+            }
+            if (distance <= segLen) {
+                double t = distance / segLen;
+                return new MapPoint(a.x() + (b.x() - a.x()) * t,
+                        a.y() + (b.y() - a.y()) * t);
+            }
+            distance -= segLen;
+        }
+
+        return points.get(points.size() - 1);
+    }
+
+    private Color varyColor(Color color, int delta, int alpha) {
+        int r = clamp(color.getRed() + random.nextInt(delta * 2 + 1) - delta, 0, 255);
+        int g = clamp(color.getGreen() + random.nextInt(delta * 2 + 1) - delta, 0, 255);
+        int b = clamp(color.getBlue() + random.nextInt(delta * 2 + 1) - delta, 0, 255);
+        return new Color(r, g, b, clamp(alpha, 0, 255));
     }
 
     private int clamp(int value, int min, int max) {

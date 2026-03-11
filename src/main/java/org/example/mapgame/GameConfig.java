@@ -10,8 +10,8 @@ public final class GameConfig {
     public static final double LOCAL_ANGLE_JITTER_RAD = Math.toRadians(9.0);
 
     public static final int ROAD_NODE_COUNT = 862;
-    public static final int ROAD_LINKS_PER_NODE = 6;
-    public static final int ROAD_MAX_EDGES_PER_NODE = 6;
+    public static final int ROAD_LINKS_PER_NODE = 5;
+    public static final int ROAD_MAX_EDGES_PER_NODE = 5;
     public static final int ROAD_DIRECTION_SECTORS = 8;
     public static final int ROAD_MIN_DIST = 110;
     public static final int ROAD_MAX_DIST = 620;

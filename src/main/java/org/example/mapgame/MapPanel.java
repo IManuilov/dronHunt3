@@ -24,6 +24,7 @@ public class MapPanel extends JPanel {
     private static final double MIN_ZOOM = 1.0;
     private static final double MAX_ZOOM = 8.0;
     private static final double ZOOM_STEP = 1.15;
+    private static final long MAP_TRANSITION_MS = 900L;
 
     private final ClickListener clickListener;
     private BufferedImage mapImage;
@@ -51,6 +52,13 @@ public class MapPanel extends JPanel {
     private double zoom = 1.0;
     private double centerX = GameConfig.MAP_WIDTH / 2.0;
     private double centerY = GameConfig.MAP_HEIGHT / 2.0;
+
+    private BufferedImage transitionOldMapImage;
+    private double transitionOldCenterX;
+    private double transitionOldCenterY;
+    private double transitionOldZoom = 1.0;
+    private long mapTransitionStartMs = 0L;
+    private boolean mapTransitionActive = false;
 
     private boolean dragging = false;
     private boolean suppressNextClick = false;
@@ -138,6 +146,18 @@ public class MapPanel extends JPanel {
     }
 
     public void setMapImage(BufferedImage mapImage) {
+        if (this.mapImage != null && mapImage != null && this.mapImage != mapImage) {
+            transitionOldMapImage = this.mapImage;
+            transitionOldCenterX = centerX;
+            transitionOldCenterY = centerY;
+            transitionOldZoom = zoom;
+            mapTransitionStartMs = System.currentTimeMillis();
+            mapTransitionActive = true;
+        } else {
+            mapTransitionActive = false;
+            transitionOldMapImage = null;
+        }
+
         this.mapImage = mapImage;
         zoom = 1.0;
         centerX = mapWidth() / 2.0;
@@ -224,25 +244,31 @@ public class MapPanel extends JPanel {
             return;
         }
 
-        int mapW = mapWidth();
-        int mapH = mapHeight();
+        int whiteOverlayAlpha = 0;
+        if (mapTransitionActive && transitionOldMapImage != null) {
+            long elapsed = System.currentTimeMillis() - mapTransitionStartMs;
+            double t = Math.max(0.0, Math.min(1.0, (double) elapsed / MAP_TRANSITION_MS));
+            if (t >= 1.0) {
+                mapTransitionActive = false;
+                transitionOldMapImage = null;
+            } else if (t < 0.5) {
+                drawMapLayer(g2, transitionOldMapImage, drawRect, transitionOldCenterX, transitionOldCenterY, transitionOldZoom);
+                whiteOverlayAlpha = clamp((int) Math.round((t / 0.5) * 255.0), 0, 255);
+            } else {
+                drawMapLayer(g2, mapImage, drawRect, centerX, centerY, zoom);
+                whiteOverlayAlpha = clamp((int) Math.round(((1.0 - t) / 0.5) * 255.0), 0, 255);
+            }
+        }
 
-        int dx1 = drawRect.x;
-        int dy1 = drawRect.y;
-        int dx2 = drawRect.x + drawRect.width;
-        int dy2 = drawRect.y + drawRect.height;
+        if (!mapTransitionActive) {
+            drawMapLayer(g2, mapImage, drawRect, centerX, centerY, zoom);
+        }
 
-        double left = centerX - getViewWidth() / 2.0;
-        double top = centerY - getViewHeight() / 2.0;
-        double right = left + getViewWidth();
-        double bottom = top + getViewHeight();
-
-        int sx1 = clamp((int) Math.floor(left), 0, mapW - 1);
-        int sy1 = clamp((int) Math.floor(top), 0, mapH - 1);
-        int sx2 = clamp((int) Math.ceil(right), sx1 + 1, mapW);
-        int sy2 = clamp((int) Math.ceil(bottom), sy1 + 1, mapH);
-
-        g2.drawImage(mapImage, dx1, dy1, dx2, dy2, sx1, sy1, sx2, sy2, null);
+        if (whiteOverlayAlpha > 0) {
+            g2.setColor(new Color(255, 255, 255, whiteOverlayAlpha));
+            g2.fillRect(drawRect.x, drawRect.y, drawRect.width, drawRect.height);
+            repaint();
+        }
 
         g2.setColor(Color.WHITE);
         g2.setStroke(new BasicStroke(1.5f));
@@ -429,12 +455,55 @@ public class MapPanel extends JPanel {
         return mapImage != null ? mapImage.getHeight() : GameConfig.MAP_HEIGHT;
     }
 
+    private int mapWidth(BufferedImage image) {
+        return image != null ? image.getWidth() : GameConfig.MAP_WIDTH;
+    }
+
+    private int mapHeight(BufferedImage image) {
+        return image != null ? image.getHeight() : GameConfig.MAP_HEIGHT;
+    }
+
     private double getViewWidth() {
         return mapWidth() / zoom;
     }
 
     private double getViewHeight() {
         return mapHeight() / zoom;
+    }
+
+    private void drawMapLayer(Graphics2D g2, BufferedImage image, Rectangle drawRect, double layerCenterX,
+                              double layerCenterY, double layerZoom) {
+        if (image == null || layerZoom <= 0.0) {
+            return;
+        }
+
+        int mapW = mapWidth(image);
+        int mapH = mapHeight(image);
+        double viewW = mapW / layerZoom;
+        double viewH = mapH / layerZoom;
+
+        double minX = viewW / 2.0;
+        double maxX = mapW - viewW / 2.0;
+        double minY = viewH / 2.0;
+        double maxY = mapH - viewH / 2.0;
+        double cx = clamp(layerCenterX, minX, maxX);
+        double cy = clamp(layerCenterY, minY, maxY);
+
+        double left = cx - viewW / 2.0;
+        double top = cy - viewH / 2.0;
+        double right = left + viewW;
+        double bottom = top + viewH;
+
+        int sx1 = clamp((int) Math.floor(left), 0, mapW - 1);
+        int sy1 = clamp((int) Math.floor(top), 0, mapH - 1);
+        int sx2 = clamp((int) Math.ceil(right), sx1 + 1, mapW);
+        int sy2 = clamp((int) Math.ceil(bottom), sy1 + 1, mapH);
+
+        int dx1 = drawRect.x;
+        int dy1 = drawRect.y;
+        int dx2 = drawRect.x + drawRect.width;
+        int dy2 = drawRect.y + drawRect.height;
+        g2.drawImage(image, dx1, dy1, dx2, dy2, sx1, sy1, sx2, sy2, null);
     }
 
     private void clampCenter() {
